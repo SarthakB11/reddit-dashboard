@@ -1,0 +1,29 @@
+{
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.6",
+    "@mui/lab": "^6.0.0-beta.29",
+    "@mui/material": "^6.4.6",
+    "@mui/x-date-pickers": "^7.27.1",
+    "axios": "^1.8.1",
+    "d3": "^7.9.0",
+    "date-fns": "^4.1.0",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "force-graph": "^1.49.1",
+    "lodash": "^4.17.21",
+    "plotly.js": "^3.0.1",
+    "react-force-graph-2d": "^1.27.0",
+    "react-force-graph-3d": "^1.26.0",
+    "react-plotly.js": "^2.6.0",
+    "react-wordcloud": "^1.2.7",
+    "recharts": "^2.15.1",
+    "three": "^0.174.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.8",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4"
+  }
+}

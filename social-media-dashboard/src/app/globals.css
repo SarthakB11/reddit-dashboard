@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --card-bg: #ffffff;
+  --card-hover-shadow: 0 10px 15px rgba(0, 0, 0, 0.05);
+  --card-border: 1px solid rgba(0, 0, 0, 0.05);
+  --primary-color: #1976d2;
+  --secondary-color: #dc004e;
+  --success-color: #4caf50;
+  --warning-color: #ff9800;
+  --error-color: #f44336;
+  --info-color: #2196f3;
+  --transition-duration: 0.3s;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --card-bg: #1e1e1e;
+    --card-hover-shadow: 0 10px 15px rgba(0, 0, 0, 0.25);
+    --card-border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+  transition: background-color var(--transition-duration) ease-in-out, color var(--transition-duration) ease-in-out;
+}
+
+/* Theme transition effects */
+.MuiPaper-root,
+.MuiCard-root,
+.MuiAppBar-root,
+.MuiDrawer-paper {
+  transition: background-color var(--transition-duration) ease-in-out, 
+              color var(--transition-duration) ease-in-out,
+              box-shadow var(--transition-duration) ease-in-out,
+              border-color var(--transition-duration) ease-in-out !important;
+}
+
+/* Add hover effects for cards */
+.MuiCard-root {
+  transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.MuiCard-root:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--card-hover-shadow);
+}
+
+/* Fix for Material UI HTML nesting issues */
+.MuiTypography-root.MuiTypography-body1,
+.MuiTypography-root.MuiTypography-body2 {
+  display: block;
+}
+
+.MuiListItemText-secondary .MuiBox-root {
+  display: inline;
+}
+
+/* Prevent nesting errors with p tags */
+p > div, 
+p > .MuiBox-root, 
+.MuiTypography-root[variant="body1"] > div,
+.MuiTypography-root[variant="body2"] > div,
+.MuiTypography-root[variant="body1"] > .MuiBox-root,
+.MuiTypography-root[variant="body2"] > .MuiBox-root {
+  display: inline;
+}
