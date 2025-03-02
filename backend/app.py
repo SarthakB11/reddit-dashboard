@@ -545,7 +545,7 @@ def get_sentiment_analysis():
         # Get posts for sentiment analysis
         query = f"""
             SELECT 
-                id, title, selftext, 
+                id, title, selftext, subreddit,
                 DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS date
             FROM reddit_posts_view
             WHERE {where_clause}
@@ -554,10 +554,25 @@ def get_sentiment_analysis():
         
         posts = con.execute(query, params).fetchall()
         
+        # Import NLTK's VADER for sentiment analysis
+        from nltk.sentiment.vader import SentimentIntensityAnalyzer
+        
+        # Download VADER lexicon if not already downloaded
+        import nltk
+        try:
+            nltk.data.find('sentiment/vader_lexicon.zip')
+        except LookupError:
+            nltk.download('vader_lexicon')
+        
+        # Initialize VADER
+        sid = SentimentIntensityAnalyzer()
+        
         # Process sentiment analysis
         sentiment_by_date = defaultdict(list)
+        subreddit_sentiment = defaultdict(list)
+        
         for post in posts:
-            post_id, title, selftext, date_str = post
+            post_id, title, selftext, subreddit, date_str = post
             text = title
             if selftext and selftext.strip():
                 text += " " + selftext
@@ -566,44 +581,85 @@ def get_sentiment_analysis():
             if not text or text.strip() == '':
                 continue
                 
-            # Analyze sentiment
+            # Analyze sentiment using VADER
             try:
-                analysis = TextBlob(text)
-                sentiment_score = analysis.sentiment.polarity
-                sentiment_by_date[date_str.strftime('%Y-%m-%d')].append(sentiment_score)
+                sentiment_scores = sid.polarity_scores(text)
+                compound_score = sentiment_scores['compound']  # -1 to 1 scale
+                
+                # Add to date-based sentiment
+                sentiment_by_date[date_str.strftime('%Y-%m-%d')].append(compound_score)
+                
+                # Add to subreddit-based sentiment
+                subreddit_sentiment[subreddit].append(compound_score)
             except Exception as e:
                 logger.warning(f"Error analyzing sentiment for post {post_id}: {str(e)}")
                 continue
         
-        # Calculate average sentiment by date
+        # Calculate sentiment categories for time series
         sentiment_timeseries = []
         for date, scores in sorted(sentiment_by_date.items()):
-            avg_sentiment = sum(scores) / len(scores) if scores else 0
-            post_count = len(scores)
+            # Calculate percentages for each sentiment category
+            positive_pct = sum(1 for score in scores if score > 0.05) / len(scores) * 100 if scores else 0
+            negative_pct = sum(1 for score in scores if score < -0.05) / len(scores) * 100 if scores else 0
+            neutral_pct = sum(1 for score in scores if -0.05 <= score <= 0.05) / len(scores) * 100 if scores else 0
+            
             sentiment_timeseries.append({
                 "date": date,
-                "avg_sentiment": avg_sentiment,
-                "post_count": post_count,
-                "sentiment_category": "positive" if avg_sentiment > 0.05 else 
-                                    "negative" if avg_sentiment < -0.05 else "neutral"
+                "positive": round(positive_pct),
+                "neutral": round(neutral_pct),
+                "negative": round(negative_pct)
             })
+        
+        # Calculate subreddit sentiment stats
+        subreddit_stats = []
+        for sr, scores in subreddit_sentiment.items():
+            if len(scores) < 5:  # Skip subreddits with too few posts
+                continue
+                
+            positive_pct = sum(1 for score in scores if score > 0.05) / len(scores) * 100
+            negative_pct = sum(1 for score in scores if score < -0.05) / len(scores) * 100
+            neutral_pct = sum(1 for score in scores if -0.05 <= score <= 0.05) / len(scores) * 100
+            avg_score = sum(scores) / len(scores)
+            
+            subreddit_stats.append({
+                "name": sr,
+                "positive": round(positive_pct),
+                "neutral": round(neutral_pct),
+                "negative": round(negative_pct),
+                "total": len(scores),
+                "score": avg_score
+            })
+        
+        # Sort subreddits by total posts
+        subreddit_stats.sort(key=lambda x: x["total"], reverse=True)
         
         # Calculate overall sentiment stats
         all_scores = [score for scores in sentiment_by_date.values() for score in scores]
-        overall_sentiment = sum(all_scores) / len(all_scores) if all_scores else 0
-        positive_count = sum(1 for score in all_scores if score > 0.05)
-        negative_count = sum(1 for score in all_scores if score < -0.05)
-        neutral_count = sum(1 for score in all_scores if -0.05 <= score <= 0.05)
+        if all_scores:
+            overall_positive = sum(1 for score in all_scores if score > 0.05) / len(all_scores) * 100
+            overall_negative = sum(1 for score in all_scores if score < -0.05) / len(all_scores) * 100
+            overall_neutral = sum(1 for score in all_scores if -0.05 <= score <= 0.05) / len(all_scores) * 100
+            overall_score = sum(all_scores) / len(all_scores)
+        else:
+            overall_positive = 0
+            overall_negative = 0
+            overall_neutral = 0
+            overall_score = 0
         
-        return jsonify({
-            "overall_sentiment": overall_sentiment,
-            "sentiment_distribution": {
-                "positive": positive_count,
-                "neutral": neutral_count,
-                "negative": negative_count
+        # Format response to match frontend expectations
+        response = {
+            "overall": {
+                "positive": round(overall_positive),
+                "neutral": round(overall_neutral),
+                "negative": round(overall_negative),
+                "total": len(all_scores),
+                "score": overall_score
             },
-            "timeseries": sentiment_timeseries
-        })
+            "timeData": sentiment_timeseries,
+            "subreddits": subreddit_stats
+        }
+        
+        return jsonify(response)
         
     except Exception as e:
         logger.error(f"Error performing sentiment analysis: {str(e)}")

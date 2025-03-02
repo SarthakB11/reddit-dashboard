@@ -20,12 +20,23 @@ import {
   Select,
   MenuItem,
   SelectChangeEvent,
+  TextField,
+  Alert,
 } from '@mui/material';
 import SentimentSatisfiedAltIcon from '@mui/icons-material/SentimentSatisfiedAlt';
 import SentimentNeutralIcon from '@mui/icons-material/SentimentNeutral';
 import SentimentVeryDissatisfiedIcon from '@mui/icons-material/SentimentVeryDissatisfied';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import ForumIcon from '@mui/icons-material/Forum';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import WarningIcon from '@mui/icons-material/Warning';
+import SearchIcon from '@mui/icons-material/Search';
+import dynamic from 'next/dynamic';
+
+// Dynamically import Plotly to avoid SSR issues
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false }) as any;
 
 // Define interfaces for sentiment data
 interface SentimentPoint {
@@ -156,21 +167,104 @@ export default function SentimentAnalysisPage() {
   const [tabValue, setTabValue] = useState(0);
   const [chartType, setChartType] = useState<'stacked' | 'line'>('stacked');
   const [selectedSubreddit, setSelectedSubreddit] = useState<string>('all');
+  const [error, setError] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
+  const [usingSampleData, setUsingSampleData] = useState(false);
   
-  useEffect(() => {
-    // Simulate API call with timeout
-    const fetchData = async () => {
-      setLoading(true);
+  // Function to check API health
+  const checkApiHealth = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) });
+      if (response.ok) {
+        setApiStatus('connected');
+        return true;
+      } else {
+        setApiStatus('disconnected');
+        return false;
+      }
+    } catch (err) {
+      setApiStatus('disconnected');
+      return false;
+    }
+  };
+  
+  // Function to fetch sentiment data from API
+  const fetchSentimentData = async (keyword: string = '', subreddit: string = '') => {
+    setLoading(true);
+    setError(null);
+    setUsingSampleData(false);
+    
+    try {
+      // First check API health
+      const isApiHealthy = await checkApiHealth();
       
-      // Simulate network delay
-      setTimeout(() => {
-        const data = generateMockSentimentData();
-        setSentimentData(data);
-        setLoading(false);
-      }, 1500);
+      if (!isApiHealthy) {
+        throw new Error('API server is not available');
+      }
+      
+      // Build API URL with query parameters
+      const apiUrl = new URL('http://localhost:5000/api/sentiment');
+      if (keyword) {
+        apiUrl.searchParams.append('keyword', keyword);
+      }
+      if (subreddit) {
+        apiUrl.searchParams.append('subreddit', subreddit);
+      }
+      
+      // Fetch data from API
+      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Check if we have valid data
+      if (!data.overall || !data.timeData || !data.subreddits) {
+        throw new Error('Invalid data format received from API');
+      }
+      
+      setSentimentData(data);
+      setApiStatus('connected');
+    } catch (err) {
+      console.error('Error fetching sentiment data:', err);
+      setError(`Failed to load sentiment data from API: ${err instanceof Error ? err.message : 'Unknown error'}. Using sample data instead.`);
+      setApiStatus('disconnected');
+      
+      // Fallback to sample data
+      const sampleData = generateMockSentimentData();
+      setSentimentData(sampleData);
+      setUsingSampleData(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Check API status periodically
+  useEffect(() => {
+    const checkApiConnection = async () => {
+      const isHealthy = await checkApiHealth();
+      
+      // If API is now available but we're using sample data, offer to refresh
+      if (isHealthy && usingSampleData) {
+        // Keep using sample data but update status
+        setApiStatus('connected');
+      }
     };
     
-    fetchData();
+    // Initial check
+    checkApiConnection();
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkApiConnection, 30000);
+    
+    return () => clearInterval(interval);
+  }, [usingSampleData]);
+  
+  // Fetch data on initial load
+  useEffect(() => {
+    fetchSentimentData();
   }, []);
   
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
@@ -183,6 +277,57 @@ export default function SentimentAnalysisPage() {
   
   const handleSubredditChange = (event: SelectChangeEvent) => {
     setSelectedSubreddit(event.target.value);
+  };
+  
+  const handleRefreshData = () => {
+    fetchSentimentData();
+  };
+  
+  const handleSearch = (keyword: string, subreddit: string) => {
+    fetchSentimentData(keyword, subreddit);
+  };
+  
+  // Custom component to display API connection status
+  const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+    let icon = null;
+    let text = '';
+    let color = '';
+    let bgColor = '';
+
+    switch (status) {
+      case 'connected':
+        icon = <CheckCircleIcon fontSize="small" />;
+        text = 'API Connected';
+        color = 'success.main';
+        bgColor = 'success.light';
+        break;
+      case 'disconnected':
+        icon = <CloudOffIcon fontSize="small" />;
+        text = 'API Disconnected';
+        color = 'error.main';
+        bgColor = 'error.light';
+        break;
+      case 'loading':
+        icon = <CircularProgress size={16} />;
+        text = 'Checking API...';
+        color = 'info.main';
+        bgColor = 'info.light';
+        break;
+    }
+
+    return (
+      <Chip
+        icon={icon}
+        label={text}
+        sx={{ 
+          color,
+          bgcolor: bgColor,
+          fontWeight: status === 'disconnected' ? 'bold' : 'normal',
+          '& .MuiChip-icon': { color }
+        }}
+        size="small"
+      />
+    );
   };
   
   const getSentimentIcon = (sentiment: string, size: 'small' | 'medium' | 'large' = 'medium') => {
@@ -212,15 +357,89 @@ export default function SentimentAnalysisPage() {
   
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Sentiment Analysis
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Sentiment Analysis
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <ApiStatus status={apiStatus} />
+          {usingSampleData && apiStatus === 'connected' && (
+            <Button 
+              size="small" 
+              variant="outlined" 
+              color="primary" 
+              onClick={handleRefreshData}
+              startIcon={<RefreshIcon />}
+            >
+              Refresh with real data
+            </Button>
+          )}
+        </Box>
+      </Box>
       
       <Typography variant="body1" paragraph color="text.secondary">
         Analyze the emotional tone of social media content to understand public perception and reactions.
+        {usingSampleData && (
+          <Box component="span" sx={{ ml: 1, display: 'inline-flex', alignItems: 'center' }}>
+            <Chip 
+              icon={<WarningIcon />} 
+              label="Using sample data" 
+              color="warning" 
+              variant="outlined" 
+              size="small"
+              sx={{ fontWeight: 'medium' }}
+            />
+          </Box>
+        )}
       </Typography>
       
       <Paper sx={{ p: 3, mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, mb: 3, alignItems: 'flex-end' }}>
+          <TextField
+            label="Search Keyword"
+            variant="outlined"
+            sx={{ flexGrow: 1 }}
+            placeholder="Enter keyword to analyze sentiment..."
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch((e.target as HTMLInputElement).value, '');
+              }
+            }}
+          />
+          
+          <TextField
+            label="Subreddit"
+            variant="outlined"
+            sx={{ flexGrow: 1 }}
+            placeholder="e.g. politics, technology"
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch('', (e.target as HTMLInputElement).value);
+              }
+            }}
+          />
+          
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={() => {
+              const keywordInput = document.querySelector('input[placeholder="Enter keyword to analyze sentiment..."]') as HTMLInputElement;
+              const subredditInput = document.querySelector('input[placeholder="e.g. politics, technology"]') as HTMLInputElement;
+              handleSearch(keywordInput?.value || '', subredditInput?.value || '');
+            }}
+            startIcon={<SearchIcon />}
+            disabled={loading}
+          >
+            Analyze
+          </Button>
+        </Box>
+        
+        {error && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+        
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
           <Tabs value={tabValue} onChange={handleTabChange} aria-label="sentiment analysis tabs">
             <Tab label="Overview" />
@@ -468,22 +687,111 @@ export default function SentimentAnalysisPage() {
                   </Box>
                 </Box>
                 
-                {/* Placeholder for time series chart */}
-                <Box 
-                  sx={{ 
-                    height: 300, 
-                    bgcolor: 'action.hover', 
-                    borderRadius: 1, 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mb: 3,
-                  }}
-                >
-                  <Typography variant="body1" color="text.secondary">
-                    <TimelineIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
-                    Sentiment Time Series Chart Placeholder ({chartType} view)
-                  </Typography>
+                {/* Sentiment time series chart */}
+                <Box sx={{ height: 400, mb: 3 }}>
+                  {loading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : sentimentData && sentimentData.timeData.length > 0 ? (
+                    <Plot
+                      data={
+                        chartType === 'stacked' 
+                          ? [
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.positive),
+                                type: 'bar',
+                                name: 'Positive',
+                                marker: { color: '#4caf50' },
+                                hoverinfo: 'y+name',
+                              },
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.neutral),
+                                type: 'bar',
+                                name: 'Neutral',
+                                marker: { color: '#2196f3' },
+                                hoverinfo: 'y+name',
+                              },
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.negative),
+                                type: 'bar',
+                                name: 'Negative',
+                                marker: { color: '#f44336' },
+                                hoverinfo: 'y+name',
+                              }
+                            ]
+                          : [
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.positive),
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: 'Positive',
+                                line: { color: '#4caf50', width: 3 },
+                                marker: { color: '#4caf50', size: 8 },
+                              },
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.neutral),
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: 'Neutral',
+                                line: { color: '#2196f3', width: 3 },
+                                marker: { color: '#2196f3', size: 8 },
+                              },
+                              {
+                                x: sentimentData.timeData.map(d => d.date),
+                                y: sentimentData.timeData.map(d => d.negative),
+                                type: 'scatter',
+                                mode: 'lines+markers',
+                                name: 'Negative',
+                                line: { color: '#f44336', width: 3 },
+                                marker: { color: '#f44336', size: 8 },
+                              }
+                            ]
+                      }
+                      layout={{
+                        autosize: true,
+                        barmode: 'stack',
+                        margin: { l: 50, r: 20, t: 20, b: 50 },
+                        xaxis: {
+                          title: 'Date',
+                          showgrid: false,
+                        },
+                        yaxis: {
+                          title: 'Percentage (%)',
+                          showgrid: true,
+                          gridcolor: '#f0f0f0',
+                          range: [0, 100],
+                        },
+                        legend: {
+                          orientation: 'h',
+                          y: 1.1,
+                        },
+                        paper_bgcolor: 'transparent',
+                        plot_bgcolor: 'transparent',
+                      }}
+                      useResizeHandler={true}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <Box sx={{ 
+                      height: '100%', 
+                      display: 'flex', 
+                      justifyContent: 'center', 
+                      alignItems: 'center',
+                      bgcolor: 'action.hover',
+                      borderRadius: 1,
+                    }}>
+                      <Typography variant="body1" color="text.secondary">
+                        <TimelineIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
+                        No sentiment data available
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
                 
                 <Card sx={{ mt: 3 }}>
@@ -497,31 +805,70 @@ export default function SentimentAnalysisPage() {
                     </Typography>
                     
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                      <Chip 
-                        icon={<SentimentSatisfiedAltIcon />} 
-                        label="Increasing positive sentiment" 
-                        color="success" 
-                        variant="outlined" 
-                      />
-                      <Chip 
-                        icon={<TimelineIcon />} 
-                        label="Weekend sentiment spikes" 
-                        color="primary" 
-                        variant="outlined" 
-                      />
-                      <Chip 
-                        icon={<SentimentVeryDissatisfiedIcon />} 
-                        label="Decreasing negative sentiment" 
-                        color="error" 
-                        variant="outlined" 
-                      />
+                      {sentimentData && sentimentData.timeData.length > 1 && (
+                        <>
+                          {sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                           sentimentData.timeData[0].positive ? (
+                            <Chip 
+                              icon={<SentimentSatisfiedAltIcon />} 
+                              label="Increasing positive sentiment" 
+                              color="success" 
+                              variant="outlined" 
+                            />
+                          ) : (
+                            <Chip 
+                              icon={<SentimentSatisfiedAltIcon />} 
+                              label="Decreasing positive sentiment" 
+                              color="warning" 
+                              variant="outlined" 
+                            />
+                          )}
+                          
+                          {sentimentData.timeData[sentimentData.timeData.length - 1].negative < 
+                           sentimentData.timeData[0].negative ? (
+                            <Chip 
+                              icon={<SentimentVeryDissatisfiedIcon />} 
+                              label="Decreasing negative sentiment" 
+                              color="success" 
+                              variant="outlined" 
+                            />
+                          ) : (
+                            <Chip 
+                              icon={<SentimentVeryDissatisfiedIcon />} 
+                              label="Increasing negative sentiment" 
+                              color="error" 
+                              variant="outlined" 
+                            />
+                          )}
+                          
+                          <Chip 
+                            icon={<TimelineIcon />} 
+                            label={`${sentimentData.timeData.length} data points analyzed`} 
+                            color="primary" 
+                            variant="outlined" 
+                          />
+                        </>
+                      )}
                     </Box>
                     
                     <Typography variant="body1">
-                      The data shows a gradual improvement in sentiment over the analyzed period, with positive sentiment
-                      increasing from {sentimentData?.timeData[0].positive}% to {sentimentData?.timeData[sentimentData.timeData.length - 1].positive}%.
-                      Negative sentiment has decreased from {sentimentData?.timeData[0].negative}% to {sentimentData?.timeData[sentimentData.timeData.length - 1].negative}%.
-                      Weekend days typically show higher positive sentiment compared to weekdays.
+                      {sentimentData && sentimentData.timeData.length > 1 ? (
+                        <>
+                          The data shows {
+                            sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                            sentimentData.timeData[0].positive ? 'an improvement' : 'a decline'
+                          } in sentiment over the analyzed period, with positive sentiment
+                          {sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                           sentimentData.timeData[0].positive ? ' increasing' : ' decreasing'} from {sentimentData.timeData[0].positive}% to {sentimentData.timeData[sentimentData.timeData.length - 1].positive}%.
+                          Negative sentiment has {
+                            sentimentData.timeData[sentimentData.timeData.length - 1].negative < 
+                            sentimentData.timeData[0].negative ? 'decreased' : 'increased'
+                          } from {sentimentData.timeData[0].negative}% to {sentimentData.timeData[sentimentData.timeData.length - 1].negative}%.
+                          {sentimentData.timeData.length > 5 && ' The trend shows fluctuations over time, which may correlate with specific events or news cycles.'}
+                        </>
+                      ) : (
+                        'Not enough data points to identify trends. Try expanding your search criteria or time range.'
+                      )}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -535,21 +882,77 @@ export default function SentimentAnalysisPage() {
                   Sentiment Comparison Across Subreddits
                 </Typography>
                 
-                {/* Placeholder for subreddit comparison chart */}
-                <Box 
-                  sx={{ 
-                    height: 300, 
-                    bgcolor: 'action.hover', 
-                    borderRadius: 1, 
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    mb: 3,
-                  }}
-                >
-                  <Typography variant="body1" color="text.secondary">
-                    Subreddit Comparison Chart Placeholder
-                  </Typography>
+                {/* Subreddit comparison chart */}
+                <Box sx={{ height: 400, mb: 3 }}>
+                  {loading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                      <CircularProgress />
+                    </Box>
+                  ) : sentimentData && sentimentData.subreddits.length > 0 ? (
+                    <Plot
+                      data={[
+                        {
+                          x: sentimentData.subreddits.map(sr => `r/${sr.name}`),
+                          y: sentimentData.subreddits.map(sr => sr.positive),
+                          type: 'bar',
+                          name: 'Positive',
+                          marker: { color: '#4caf50' },
+                        },
+                        {
+                          x: sentimentData.subreddits.map(sr => `r/${sr.name}`),
+                          y: sentimentData.subreddits.map(sr => sr.neutral),
+                          type: 'bar',
+                          name: 'Neutral',
+                          marker: { color: '#2196f3' },
+                        },
+                        {
+                          x: sentimentData.subreddits.map(sr => `r/${sr.name}`),
+                          y: sentimentData.subreddits.map(sr => sr.negative),
+                          type: 'bar',
+                          name: 'Negative',
+                          marker: { color: '#f44336' },
+                        }
+                      ]}
+                      layout={{
+                        autosize: true,
+                        barmode: 'stack',
+                        margin: { l: 50, r: 20, t: 20, b: 100 },
+                        xaxis: {
+                          title: 'Subreddit',
+                          showgrid: false,
+                          tickangle: -45,
+                        },
+                        yaxis: {
+                          title: 'Percentage (%)',
+                          showgrid: true,
+                          gridcolor: '#f0f0f0',
+                          range: [0, 100],
+                        },
+                        legend: {
+                          orientation: 'h',
+                          y: 1.1,
+                        },
+                        paper_bgcolor: 'transparent',
+                        plot_bgcolor: 'transparent',
+                      }}
+                      useResizeHandler={true}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  ) : (
+                    <Box sx={{ 
+                      height: '100%', 
+                      display: 'flex', 
+                      justifyContent: 'center', 
+                      alignItems: 'center',
+                      bgcolor: 'action.hover',
+                      borderRadius: 1,
+                    }}>
+                      <Typography variant="body1" color="text.secondary">
+                        <ForumIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
+                        No subreddit data available
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
                 
                 <Grid container spacing={3}>
@@ -666,32 +1069,86 @@ export default function SentimentAnalysisPage() {
           </Typography>
           
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Chip 
-              icon={<SentimentSatisfiedAltIcon />} 
-              label="Science subreddit most positive" 
-              color="success" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<SentimentVeryDissatisfiedIcon />} 
-              label="Politics subreddit most negative" 
-              color="error" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<TimelineIcon />} 
-              label="Overall positive trend" 
-              color="primary" 
-              variant="outlined" 
-            />
+            {sentimentData && sentimentData.subreddits.length > 0 && (
+              <>
+                {/* Most positive subreddit */}
+                {(() => {
+                  const mostPositive = [...sentimentData.subreddits].sort((a, b) => b.score - a.score)[0];
+                  return (
+                    <Chip 
+                      icon={<SentimentSatisfiedAltIcon />} 
+                      label={`r/${mostPositive.name} most positive`} 
+                      color="success" 
+                      variant="outlined" 
+                    />
+                  );
+                })()}
+                
+                {/* Most negative subreddit */}
+                {(() => {
+                  const mostNegative = [...sentimentData.subreddits].sort((a, b) => a.score - b.score)[0];
+                  return (
+                    <Chip 
+                      icon={<SentimentVeryDissatisfiedIcon />} 
+                      label={`r/${mostNegative.name} most negative`} 
+                      color="error" 
+                      variant="outlined" 
+                    />
+                  );
+                })()}
+                
+                {/* Overall trend */}
+                {sentimentData.timeData.length > 1 && (
+                  <Chip 
+                    icon={<TimelineIcon />} 
+                    label={`Overall ${
+                      sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                      sentimentData.timeData[0].positive ? 'positive' : 'negative'
+                    } trend`} 
+                    color="primary" 
+                    variant="outlined" 
+                  />
+                )}
+              </>
+            )}
           </Box>
           
           <Typography variant="body1">
-            The sentiment analysis reveals that r/science has the most positive sentiment with a score of {sentimentData?.subreddits.find(s => s.name === 'science')?.score.toFixed(2)},
-            while r/politics shows the most negative sentiment at {sentimentData?.subreddits.find(s => s.name === 'politics')?.score.toFixed(2)}.
-            Overall, the content analyzed shows a slightly {sentimentData?.overall.score && sentimentData.overall.score > 0 ? 'positive' : sentimentData?.overall.score && sentimentData.overall.score < 0 ? 'negative' : 'neutral'} tone
-            with a score of {sentimentData?.overall.score.toFixed(2)}.
-            The trend over time indicates a gradual improvement in sentiment, suggesting increasing positivity in discussions.
+            {sentimentData ? (
+              <>
+                {sentimentData.subreddits.length > 0 ? (
+                  <>
+                    The sentiment analysis reveals that {(() => {
+                      const mostPositive = [...sentimentData.subreddits].sort((a, b) => b.score - a.score)[0];
+                      return `r/${mostPositive.name} has the most positive sentiment with a score of ${mostPositive.score.toFixed(2)}`;
+                    })()},
+                    while {(() => {
+                      const mostNegative = [...sentimentData.subreddits].sort((a, b) => a.score - b.score)[0];
+                      return `r/${mostNegative.name} shows the most negative sentiment at ${mostNegative.score.toFixed(2)}`;
+                    })()}.
+                    
+                    Overall, the content analyzed shows a {
+                      sentimentData.overall.score > 0.05 ? 'positive' : 
+                      sentimentData.overall.score < -0.05 ? 'negative' : 'neutral'
+                    } tone with a score of {sentimentData.overall.score.toFixed(2)}.
+                    
+                    {sentimentData.timeData.length > 1 && (
+                      ` The trend over time indicates a ${
+                        sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                        sentimentData.timeData[0].positive ? 'gradual improvement' : 'decline'
+                      } in sentiment, with positive sentiment ${
+                        sentimentData.timeData[sentimentData.timeData.length - 1].positive > 
+                        sentimentData.timeData[0].positive ? 'increasing' : 'decreasing'
+                      } from ${sentimentData.timeData[0].positive}% to ${sentimentData.timeData[sentimentData.timeData.length - 1].positive}% over the analyzed period.`
+                    )}
+                  </>
+                ) : (
+                  'Not enough data to provide detailed insights. Try expanding your search criteria or analyzing more subreddits.'
+                )}
+              </>
+            ) : (
+              'Loading sentiment data...'
+            )}
           </Typography>
         </Paper>
       </Box>
