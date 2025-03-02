@@ -77,6 +77,27 @@ def load_and_process_data():
 # Load the data when the application starts
 data_loaded = load_and_process_data()
 
+# Text cleaning function
+def clean_text(text):
+    """Clean and preprocess text for topic modeling."""
+    if not text or not isinstance(text, str):
+        return ""
+    
+    # Convert to lowercase
+    text = text.lower()
+    
+    # Remove URLs
+    text = re.sub(r'http\S+', '', text)
+    
+    # Remove special characters and numbers
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\d+', ' ', text)
+    
+    # Remove extra whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
 # API Routes
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -667,239 +688,241 @@ def get_sentiment_analysis():
 
 @app.route('/api/topics', methods=['GET'])
 def get_topic_modeling():
-    """Perform topic modeling on posts matching query parameters"""
+    """
+    Get topic modeling results for Reddit posts.
+    
+    Query Parameters:
+    - subreddit (optional): Filter by subreddit
+    - after (optional): Filter posts after this date (format: YYYY-MM-DD)
+    - before (optional): Filter posts before this date (format: YYYY-MM-DD)
+    - num_topics (optional): Number of topics to extract (default: 8)
+    
+    Returns:
+    - JSON with topic modeling results
+    """
     try:
-        keyword = request.args.get('keyword', '')
+        # Get query parameters
         subreddit = request.args.get('subreddit', '')
-        domain = request.args.get('domain', '')
-        num_topics = int(request.args.get('num_topics', 5))
-        num_words = int(request.args.get('num_words', 10))
+        after_date = request.args.get('after', '')
+        before_date = request.args.get('before', '')
+        num_topics = int(request.args.get('num_topics', 8))
         
-        if num_topics < 2 or num_topics > 20:
-            return jsonify({"error": "Number of topics must be between 2 and 20"}), 400
-            
-        # Build query conditions
-        conditions = []
-        params = []  # Use a list for positional parameters
-        
-        if keyword:
-            conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params.append(keyword)
-            params.append(keyword)
-            
-        if subreddit:
-            conditions.append("LOWER(subreddit) = LOWER(?)")
-            params.append(subreddit)
-            
-        if domain:
-            conditions.append("LOWER(domain) = LOWER(?)")
-            params.append(domain)
-            
-        # Create WHERE clause
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
-        
-        # Get posts for topic modeling
-        query = f"""
+        # Build the SQL query using DuckDB date functions
+        query = """
             SELECT 
-                id, title, selftext, subreddit,
-                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS date
+                title, 
+                selftext, 
+                subreddit, 
+                created_utc,
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS post_date
             FROM reddit_posts_view
-            WHERE {where_clause}
-            AND LENGTH(selftext) > 50
-            LIMIT 5000
+            WHERE 1=1
         """
         
-        posts = con.execute(query, params).fetchall()
+        params = []
         
-        if len(posts) < 50:
-            return jsonify({"error": "Not enough data for meaningful topic modeling. Try broader search criteria."}), 400
+        if subreddit:
+            query += " AND subreddit = ?"
+            params.append(subreddit)
         
-        # Prepare text data
+        if after_date:
+            query += " AND DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') >= ?"
+            params.append(after_date)
+        
+        if before_date:
+            query += " AND DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') <= ?"
+            params.append(before_date)
+        
+        # Execute the query
+        result = con.execute(query, params).fetchall()
+        
+        if not result:
+            return jsonify({
+                "topics": [],
+                "subreddits": [],
+                "timeData": []
+            })
+        
+        # Prepare text data for topic modeling
         texts = []
         post_dates = []
         post_subreddits = []
         
-        for post in posts:
-            post_id, title, selftext, subreddit, date = post
-            combined_text = title
-            if selftext and selftext.strip():
-                combined_text += " " + selftext
+        for row in result:
+            # Combine title and selftext
+            text = row[0] or ""
+            if row[1]:
+                text += " " + row[1]
             
-            # Clean text
-            combined_text = re.sub(r'http\S+', '', combined_text)  # Remove URLs
-            combined_text = re.sub(r'[^\w\s]', '', combined_text)  # Remove punctuation
-            combined_text = re.sub(r'\s+', ' ', combined_text).strip()  # Remove extra whitespace
+            # Clean and preprocess the text
+            text = clean_text(text)
             
-            if len(combined_text.split()) > 5:  # Only include if at least 5 words
-                texts.append(combined_text)
-                post_dates.append(date)
-                post_subreddits.append(subreddit)
+            if text.strip():  # Only add non-empty texts
+                texts.append(text)
+                post_dates.append(str(row[4]))  # post_date as string
+                post_subreddits.append(row[2])  # subreddit
         
-        # Vectorize the text
-        vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
-        dtm = vectorizer.fit_transform(texts)
+        # Import scikit-learn libraries
+        from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+        from sklearn.decomposition import LatentDirichletAllocation
+        import numpy as np
+        from collections import Counter, defaultdict
+        import pandas as pd
+        
+        # Create a TF-IDF vectorizer
+        tfidf_vectorizer = TfidfVectorizer(
+            max_df=0.95,  # Ignore terms that appear in more than 95% of documents
+            min_df=2,     # Ignore terms that appear in less than 2 documents
+            stop_words='english',
+            ngram_range=(1, 2)  # Consider both unigrams and bigrams
+        )
+        
+        # Create a Count vectorizer for LDA
+        count_vectorizer = CountVectorizer(
+            max_df=0.95,
+            min_df=2,
+            stop_words='english'
+        )
+        
+        # Transform the texts to TF-IDF features
+        tfidf = tfidf_vectorizer.fit_transform(texts)
+        
+        # Transform the texts to count features for LDA
+        count_features = count_vectorizer.fit_transform(texts)
+        
+        # Get feature names
+        feature_names = count_vectorizer.get_feature_names_out()
         
         # Perform LDA
         lda = LatentDirichletAllocation(
             n_components=num_topics,
             random_state=42,
+            learning_method='online',
             max_iter=10
         )
-        lda.fit(dtm)
         
-        # Get feature names
-        feature_names = vectorizer.get_feature_names_out()
+        # Fit the model
+        lda.fit(count_features)
         
-        # Generate topic assignments for all documents
-        topic_assignments = lda.transform(dtm)
+        # Get document-topic distributions
+        doc_topic_dist = lda.transform(count_features)
         
-        # Assign primary topic to each document
-        doc_primary_topics = np.argmax(topic_assignments, axis=1)
+        # Function to generate a topic name based on top words
+        def generate_topic_name(top_words):
+            # Simple approach: use the top 2 words
+            if len(top_words) >= 2:
+                return f"{top_words[0]['word'].capitalize()} & {top_words[1]['word'].capitalize()}"
+            elif len(top_words) == 1:
+                return top_words[0]['word'].capitalize()
+            else:
+                return f"Topic {topic_idx + 1}"
         
-        # Count documents per topic
-        topic_doc_counts = np.bincount(doc_primary_topics, minlength=num_topics)
-        
-        # Generate topic names based on top words
-        topic_names = []
-        for topic_idx, topic in enumerate(lda.components_):
-            top_features_ind = topic.argsort()[:-3-1:-1]  # Get top 3 words for naming
-            top_words = [feature_names[i] for i in top_features_ind]
-            topic_name = " & ".join([word.capitalize() for word in top_words])
-            topic_names.append(topic_name)
-        
-        # Extract topics with formatted data
+        # Create topics with their top words
         topics = []
         for topic_idx, topic in enumerate(lda.components_):
-            top_features_ind = topic.argsort()[:-num_words-1:-1]
-            top_features = [feature_names[i] for i in top_features_ind]
-            top_weights = [topic[i] for i in top_features_ind]
+            # Get the top words for this topic
+            top_word_indices = topic.argsort()[:-11:-1]  # Get indices of top 10 words
+            top_words = [
+                {"word": feature_names[i], "weight": float(topic[i] / sum(topic))}
+                for i in top_word_indices
+            ]
             
-            # Format words as expected by frontend
-            words = []
-            for i, word in enumerate(top_features):
-                words.append({
-                    "word": word,
-                    "weight": float(top_weights[i] / top_weights[0])  # Normalize weights to 0-1 scale
-                })
+            # Count documents where this topic is dominant
+            topic_doc_count = sum(1 for doc_topics in doc_topic_dist if np.argmax(doc_topics) == topic_idx)
             
-            # Calculate prevalence
-            prevalence = float(sum(topic_assignments[:, topic_idx]) / len(texts))
+            # Generate a name for the topic based on top words
+            topic_name = generate_topic_name(top_words)
             
-            # Count posts for this topic
-            post_count = int(topic_doc_counts[topic_idx])
+            # Calculate trend (comparing first half to second half of time period)
+            if len(texts) > 10:
+                mid_point = len(texts) // 2
+                first_half = doc_topic_dist[:mid_point, topic_idx].mean()
+                second_half = doc_topic_dist[mid_point:, topic_idx].mean()
+                
+                if second_half > first_half * 1.1:  # 10% increase
+                    trend = "up"
+                    percent_change = ((second_half - first_half) / first_half) * 100
+                elif first_half > second_half * 1.1:  # 10% decrease
+                    trend = "down"
+                    percent_change = ((second_half - first_half) / first_half) * 100
+                else:
+                    trend = "flat"
+                    percent_change = ((second_half - first_half) / first_half) * 100
+            else:
+                trend = "flat"
+                percent_change = 0
             
             topics.append({
-                "id": topic_idx,
-                "name": topic_names[topic_idx],
-                "words": words,
-                "postCount": post_count,
-                "trend": "up",  # Default value, will be updated below
-                "percentChange": 0  # Default value, will be updated below
+                "id": topic_idx + 1,
+                "name": topic_name,
+                "words": top_words,
+                "postCount": int(topic_doc_count),
+                "trend": trend,
+                "percentChange": round(percent_change, 1)
             })
         
-        # Calculate topic trends over time
-        # Group posts by date
-        dates = [d.strftime('%Y-%m-%d') if d else 'unknown' for d in post_dates]
-        unique_dates = sorted(list(set(dates)))
-        
-        if len(unique_dates) > 1:
-            # Calculate topic distribution for each date
-            time_data = []
-            date_topic_counts = {}
-            
-            for date in unique_dates:
-                date_indices = [i for i, d in enumerate(dates) if d == date]
-                date_assignments = topic_assignments[date_indices]
-                date_primary_topics = np.argmax(date_assignments, axis=1)
-                date_topic_count = np.bincount(date_primary_topics, minlength=num_topics)
-                date_topic_counts[date] = date_topic_count
-                
-                # Calculate percentages
-                total_posts = len(date_indices)
-                topic_distribution = []
-                for topic_idx in range(num_topics):
-                    percentage = (date_topic_count[topic_idx] / total_posts * 100) if total_posts > 0 else 0
-                    topic_distribution.append({
-                        "topicId": topic_idx,
-                        "percentage": float(percentage)
-                    })
-                
-                time_data.append({
-                    "date": date,
-                    "topicDistribution": topic_distribution
-                })
-            
-            # Calculate trend (comparing first and last date)
-            first_date = unique_dates[0]
-            last_date = unique_dates[-1]
-            first_counts = date_topic_counts[first_date]
-            last_counts = date_topic_counts[last_date]
-            
-            for topic_idx in range(num_topics):
-                first_count = first_counts[topic_idx]
-                last_count = last_counts[topic_idx]
-                
-                if first_count > 0:
-                    percent_change = ((last_count - first_count) / first_count) * 100
-                else:
-                    percent_change = 0 if last_count == 0 else 100
-                
-                # Update trend and percentChange
-                topics[topic_idx]["percentChange"] = round(percent_change)
-                if percent_change > 5:
-                    topics[topic_idx]["trend"] = "up"
-                elif percent_change < -5:
-                    topics[topic_idx]["trend"] = "down"
-                else:
-                    topics[topic_idx]["trend"] = "flat"
-        else:
-            # If only one date, create a single time point
-            topic_distribution = []
-            for topic_idx in range(num_topics):
-                percentage = (topic_doc_counts[topic_idx] / len(texts) * 100) if len(texts) > 0 else 0
-                topic_distribution.append({
-                    "topicId": topic_idx,
-                    "percentage": float(percentage)
-                })
-            
-            time_data = [{
-                "date": unique_dates[0] if unique_dates else "unknown",
-                "topicDistribution": topic_distribution
-            }]
-        
         # Calculate subreddit-topic associations
-        subreddit_topics = {}
+        subreddit_topics = defaultdict(lambda: defaultdict(float))
+        
         for i, subreddit in enumerate(post_subreddits):
-            if subreddit not in subreddit_topics:
-                subreddit_topics[subreddit] = {
-                    "name": subreddit,
-                    "topTopics": [],
-                    "postCount": 0,
-                    "topicCounts": np.zeros(num_topics)
-                }
-            
-            # Increment post count
-            subreddit_topics[subreddit]["postCount"] += 1
-            
-            # Add topic weights
-            subreddit_topics[subreddit]["topicCounts"] += topic_assignments[i]
+            for topic_idx, weight in enumerate(doc_topic_dist[i]):
+                subreddit_topics[subreddit][topic_idx] += weight
         
         # Format subreddit data
         subreddits_data = []
-        for subreddit, data in subreddit_topics.items():
+        for subreddit, topic_weights in subreddit_topics.items():
             # Get top 3 topics for this subreddit
-            top_topics_indices = np.argsort(data["topicCounts"])[-3:][::-1]
+            top_topics = sorted(topic_weights.items(), key=lambda x: x[1], reverse=True)[:3]
+            top_topic_ids = [t[0] + 1 for t in top_topics]  # +1 because we use 1-indexed topics in the response
+            
+            # Count posts for this subreddit
+            post_count = post_subreddits.count(subreddit)
             
             subreddits_data.append({
-                "name": data["name"],
-                "topTopics": top_topics_indices.tolist(),
-                "postCount": data["postCount"]
+                "name": subreddit,
+                "topTopics": top_topic_ids,
+                "postCount": post_count
             })
         
-        # Sort subreddits by post count
-        subreddits_data.sort(key=lambda x: x["postCount"], reverse=True)
+        # Calculate topic distribution over time
+        time_data = []
         
-        # Return formatted data
+        # Convert post_dates to pandas datetime for easier grouping
+        dates_df = pd.DataFrame({
+            'date': pd.to_datetime(post_dates),
+            'doc_idx': range(len(post_dates))
+        })
+        
+        # Group by week
+        date_groups = dates_df.groupby(pd.Grouper(key='date', freq='W'))
+        
+        for date, group in date_groups:
+            if len(group) == 0:
+                continue
+                
+            # Get document indices for this time period
+            doc_indices = group['doc_idx'].values
+            
+            # Calculate average topic distribution for this period
+            period_topic_dist = doc_topic_dist[doc_indices].mean(axis=0)
+            
+            # Format topic distribution
+            topic_distribution = [
+                {
+                    "topicId": i + 1,
+                    "percentage": round(weight * 100, 1)
+                }
+                for i, weight in enumerate(period_topic_dist)
+            ]
+            
+            time_data.append({
+                "date": date.strftime('%Y-%m-%d'),
+                "topicDistribution": topic_distribution
+            })
+        
+        # Sort topics by post count
+        topics = sorted(topics, key=lambda x: x["postCount"], reverse=True)
+        
         return jsonify({
             "topics": topics,
             "subreddits": subreddits_data,
@@ -907,7 +930,7 @@ def get_topic_modeling():
         })
         
     except Exception as e:
-        logger.error(f"Error performing topic modeling: {str(e)}")
+        logger.error(f"Error in topic modeling: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/ai/summary', methods=['GET'])
