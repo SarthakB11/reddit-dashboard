@@ -22,6 +22,8 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  TextField,
+  Alert,
 } from '@mui/material';
 import TagIcon from '@mui/icons-material/Tag';
 import ForumIcon from '@mui/icons-material/Forum';
@@ -29,6 +31,11 @@ import BubbleChartIcon from '@mui/icons-material/BubbleChart';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import WarningIcon from '@mui/icons-material/Warning';
+import SearchIcon from '@mui/icons-material/Search';
 
 // Define interfaces for topic modeling data
 interface TopicWord {
@@ -315,26 +322,159 @@ function ClientOnly({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Custom component to display API connection status
+const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+  let icon = null;
+  let text = '';
+  let color = '';
+  let bgColor = '';
+
+  switch (status) {
+    case 'connected':
+      icon = <CheckCircleIcon fontSize="small" />;
+      text = 'API Connected';
+      color = 'success.main';
+      bgColor = 'success.light';
+      break;
+    case 'disconnected':
+      icon = <CloudOffIcon fontSize="small" />;
+      text = 'API Disconnected';
+      color = 'error.main';
+      bgColor = 'error.light';
+      break;
+    case 'loading':
+      icon = <CircularProgress size={16} />;
+      text = 'Checking API...';
+      color = 'info.main';
+      bgColor = 'info.light';
+      break;
+  }
+
+  return (
+    <Chip
+      icon={icon}
+      label={text}
+      sx={{ 
+        color,
+        bgcolor: bgColor,
+        fontWeight: status === 'disconnected' ? 'bold' : 'normal',
+        '& .MuiChip-icon': { color }
+      }}
+      size="small"
+    />
+  );
+};
+
 export default function TopicModelingPage() {
   const [loading, setLoading] = useState(true);
   const [topicData, setTopicData] = useState<TopicModelingData | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
   const [selectedSubreddit, setSelectedSubreddit] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
+  const [usingSampleData, setUsingSampleData] = useState(false);
+  const [keyword, setKeyword] = useState('');
+  const [subreddit, setSubreddit] = useState('');
+  const [numTopics, setNumTopics] = useState(8);
   
-  useEffect(() => {
-    // Simulate API call with timeout
-    const fetchData = async () => {
-      setLoading(true);
+  // Function to check API health
+  const checkApiHealth = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) });
+      if (response.ok) {
+        setApiStatus('connected');
+        return true;
+      } else {
+        setApiStatus('disconnected');
+        return false;
+      }
+    } catch (err) {
+      setApiStatus('disconnected');
+      return false;
+    }
+  };
+  
+  // Function to fetch topic data from API
+  const fetchTopicData = async (keyword: string = '', subreddit: string = '', numTopics: number = 8) => {
+    setLoading(true);
+    setError(null);
+    setUsingSampleData(false);
+    
+    try {
+      // First check API health
+      const isApiHealthy = await checkApiHealth();
       
-      // Simulate network delay
-      setTimeout(() => {
-        const data = generateMockTopicModelingData();
-        setTopicData(data);
-        setLoading(false);
-      }, 1500);
+      if (!isApiHealthy) {
+        throw new Error('API server is not available');
+      }
+      
+      // Build API URL with query parameters
+      const apiUrl = new URL('http://localhost:5000/api/topics');
+      if (keyword) {
+        apiUrl.searchParams.append('keyword', keyword);
+      }
+      if (subreddit) {
+        apiUrl.searchParams.append('subreddit', subreddit);
+      }
+      apiUrl.searchParams.append('num_topics', numTopics.toString());
+      
+      // Fetch data from API
+      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(30000) });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Check if we have valid data
+      if (!data.topics || !data.subreddits || !data.timeData) {
+        throw new Error('Invalid data format received from API');
+      }
+      
+      setTopicData(data);
+      setApiStatus('connected');
+      setSelectedTopic(null);
+      setSelectedSubreddit(null);
+    } catch (err) {
+      console.error('Error fetching topic data:', err);
+      setError(`Failed to load topic data from API: ${err instanceof Error ? err.message : 'Unknown error'}. Using sample data instead.`);
+      setApiStatus('disconnected');
+      
+      // Fallback to sample data
+      const sampleData = generateMockTopicModelingData();
+      setTopicData(sampleData);
+      setUsingSampleData(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Check API status periodically
+  useEffect(() => {
+    const checkApiConnection = async () => {
+      const isHealthy = await checkApiHealth();
+      
+      // If API is now available but we're using sample data, offer to refresh
+      if (isHealthy && usingSampleData) {
+        // Keep using sample data but update status
+        setApiStatus('connected');
+      }
     };
     
-    fetchData();
+    // Initial check
+    checkApiConnection();
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkApiConnection, 30000);
+    
+    return () => clearInterval(interval);
+  }, [usingSampleData]);
+  
+  // Fetch data on initial load
+  useEffect(() => {
+    fetchTopicData();
   }, []);
   
   const handleTopicChange = (event: SelectChangeEvent) => {
@@ -343,6 +483,14 @@ export default function TopicModelingPage() {
   
   const handleSubredditChange = (event: SelectChangeEvent) => {
     setSelectedSubreddit(event.target.value);
+  };
+  
+  const handleRefreshData = () => {
+    fetchTopicData(keyword, subreddit, numTopics);
+  };
+  
+  const handleSearch = () => {
+    fetchTopicData(keyword, subreddit, numTopics);
   };
   
   const getTrendIcon = (trend: string) => {
@@ -371,15 +519,105 @@ export default function TopicModelingPage() {
   
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Topic Modeling
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Topic Modeling
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <ApiStatus status={apiStatus} />
+          {usingSampleData && apiStatus === 'connected' && (
+            <Button 
+              size="small" 
+              variant="outlined" 
+              color="primary" 
+              onClick={handleRefreshData}
+              startIcon={<RefreshIcon />}
+            >
+              Refresh with real data
+            </Button>
+          )}
+        </Box>
+      </Box>
       
       <Typography variant="body1" paragraph color="text.secondary">
         Discover the main themes and topics discussed across social media platforms using natural language processing.
+        {usingSampleData && (
+          <Box component="span" sx={{ ml: 1, display: 'inline-flex', alignItems: 'center' }}>
+            <Chip 
+              icon={<WarningIcon />} 
+              label="Using sample data" 
+              color="warning" 
+              variant="outlined" 
+              size="small"
+              sx={{ fontWeight: 'medium' }}
+            />
+          </Box>
+        )}
       </Typography>
       
       <Paper sx={{ p: 3, mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, mb: 3, alignItems: 'flex-end' }}>
+          <TextField
+            label="Search Keyword"
+            variant="outlined"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            sx={{ flexGrow: 1 }}
+            placeholder="Enter keyword to analyze topics..."
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
+          />
+          
+          <TextField
+            label="Subreddit"
+            variant="outlined"
+            value={subreddit}
+            onChange={(e) => setSubreddit(e.target.value)}
+            sx={{ flexGrow: 1 }}
+            placeholder="e.g. politics, technology"
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
+          />
+          
+          <FormControl sx={{ minWidth: 120 }}>
+            <InputLabel id="num-topics-label">Topics</InputLabel>
+            <Select
+              labelId="num-topics-label"
+              value={numTopics.toString()}
+              label="Topics"
+              onChange={(e) => setNumTopics(Number(e.target.value))}
+            >
+              <MenuItem value={5}>5 Topics</MenuItem>
+              <MenuItem value={8}>8 Topics</MenuItem>
+              <MenuItem value={10}>10 Topics</MenuItem>
+              <MenuItem value={15}>15 Topics</MenuItem>
+              <MenuItem value={20}>20 Topics</MenuItem>
+            </Select>
+          </FormControl>
+          
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={handleSearch}
+            startIcon={<SearchIcon />}
+            disabled={loading}
+          >
+            Analyze
+          </Button>
+        </Box>
+        
+        {error && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            {error}
+          </Alert>
+        )}
+        
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h6">
             Topic Distribution

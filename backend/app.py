@@ -701,7 +701,8 @@ def get_topic_modeling():
         # Get posts for topic modeling
         query = f"""
             SELECT 
-                id, title, selftext
+                id, title, selftext, subreddit,
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS date
             FROM reddit_posts_view
             WHERE {where_clause}
             AND LENGTH(selftext) > 50
@@ -715,8 +716,11 @@ def get_topic_modeling():
         
         # Prepare text data
         texts = []
+        post_dates = []
+        post_subreddits = []
+        
         for post in posts:
-            post_id, title, selftext = post
+            post_id, title, selftext, subreddit, date = post
             combined_text = title
             if selftext and selftext.strip():
                 combined_text += " " + selftext
@@ -728,6 +732,8 @@ def get_topic_modeling():
             
             if len(combined_text.split()) > 5:  # Only include if at least 5 words
                 texts.append(combined_text)
+                post_dates.append(date)
+                post_subreddits.append(subreddit)
         
         # Vectorize the text
         vectorizer = CountVectorizer(max_df=0.95, min_df=2, stop_words='english')
@@ -744,36 +750,160 @@ def get_topic_modeling():
         # Get feature names
         feature_names = vectorizer.get_feature_names_out()
         
-        # Extract topics
+        # Generate topic assignments for all documents
+        topic_assignments = lda.transform(dtm)
+        
+        # Assign primary topic to each document
+        doc_primary_topics = np.argmax(topic_assignments, axis=1)
+        
+        # Count documents per topic
+        topic_doc_counts = np.bincount(doc_primary_topics, minlength=num_topics)
+        
+        # Generate topic names based on top words
+        topic_names = []
+        for topic_idx, topic in enumerate(lda.components_):
+            top_features_ind = topic.argsort()[:-3-1:-1]  # Get top 3 words for naming
+            top_words = [feature_names[i] for i in top_features_ind]
+            topic_name = " & ".join([word.capitalize() for word in top_words])
+            topic_names.append(topic_name)
+        
+        # Extract topics with formatted data
         topics = []
         for topic_idx, topic in enumerate(lda.components_):
             top_features_ind = topic.argsort()[:-num_words-1:-1]
             top_features = [feature_names[i] for i in top_features_ind]
             top_weights = [topic[i] for i in top_features_ind]
             
+            # Format words as expected by frontend
+            words = []
+            for i, word in enumerate(top_features):
+                words.append({
+                    "word": word,
+                    "weight": float(top_weights[i] / top_weights[0])  # Normalize weights to 0-1 scale
+                })
+            
+            # Calculate prevalence
+            prevalence = float(sum(topic_assignments[:, topic_idx]) / len(texts))
+            
+            # Count posts for this topic
+            post_count = int(topic_doc_counts[topic_idx])
+            
             topics.append({
                 "id": topic_idx,
-                "words": top_features,
-                "weights": [float(w) for w in top_weights],
-                "prevalence": float(sum(lda.transform(dtm)[:, topic_idx]) / len(texts))
+                "name": topic_names[topic_idx],
+                "words": words,
+                "postCount": post_count,
+                "trend": "up",  # Default value, will be updated below
+                "percentChange": 0  # Default value, will be updated below
             })
         
-        # Generate topic assignments for visualization
-        topic_assignments = lda.transform(dtm)
-        topic_distribution = []
-        for idx, doc_topics in enumerate(topic_assignments):
-            primary_topic = np.argmax(doc_topics)
-            topic_distribution.append({
-                "document_id": idx,
-                "primary_topic": int(primary_topic),
-                "topic_weights": [float(w) for w in doc_topics],
-                "topic_confidence": float(doc_topics[primary_topic])
+        # Calculate topic trends over time
+        # Group posts by date
+        dates = [d.strftime('%Y-%m-%d') if d else 'unknown' for d in post_dates]
+        unique_dates = sorted(list(set(dates)))
+        
+        if len(unique_dates) > 1:
+            # Calculate topic distribution for each date
+            time_data = []
+            date_topic_counts = {}
+            
+            for date in unique_dates:
+                date_indices = [i for i, d in enumerate(dates) if d == date]
+                date_assignments = topic_assignments[date_indices]
+                date_primary_topics = np.argmax(date_assignments, axis=1)
+                date_topic_count = np.bincount(date_primary_topics, minlength=num_topics)
+                date_topic_counts[date] = date_topic_count
+                
+                # Calculate percentages
+                total_posts = len(date_indices)
+                topic_distribution = []
+                for topic_idx in range(num_topics):
+                    percentage = (date_topic_count[topic_idx] / total_posts * 100) if total_posts > 0 else 0
+                    topic_distribution.append({
+                        "topicId": topic_idx,
+                        "percentage": float(percentage)
+                    })
+                
+                time_data.append({
+                    "date": date,
+                    "topicDistribution": topic_distribution
+                })
+            
+            # Calculate trend (comparing first and last date)
+            first_date = unique_dates[0]
+            last_date = unique_dates[-1]
+            first_counts = date_topic_counts[first_date]
+            last_counts = date_topic_counts[last_date]
+            
+            for topic_idx in range(num_topics):
+                first_count = first_counts[topic_idx]
+                last_count = last_counts[topic_idx]
+                
+                if first_count > 0:
+                    percent_change = ((last_count - first_count) / first_count) * 100
+                else:
+                    percent_change = 0 if last_count == 0 else 100
+                
+                # Update trend and percentChange
+                topics[topic_idx]["percentChange"] = round(percent_change)
+                if percent_change > 5:
+                    topics[topic_idx]["trend"] = "up"
+                elif percent_change < -5:
+                    topics[topic_idx]["trend"] = "down"
+                else:
+                    topics[topic_idx]["trend"] = "flat"
+        else:
+            # If only one date, create a single time point
+            topic_distribution = []
+            for topic_idx in range(num_topics):
+                percentage = (topic_doc_counts[topic_idx] / len(texts) * 100) if len(texts) > 0 else 0
+                topic_distribution.append({
+                    "topicId": topic_idx,
+                    "percentage": float(percentage)
+                })
+            
+            time_data = [{
+                "date": unique_dates[0] if unique_dates else "unknown",
+                "topicDistribution": topic_distribution
+            }]
+        
+        # Calculate subreddit-topic associations
+        subreddit_topics = {}
+        for i, subreddit in enumerate(post_subreddits):
+            if subreddit not in subreddit_topics:
+                subreddit_topics[subreddit] = {
+                    "name": subreddit,
+                    "topTopics": [],
+                    "postCount": 0,
+                    "topicCounts": np.zeros(num_topics)
+                }
+            
+            # Increment post count
+            subreddit_topics[subreddit]["postCount"] += 1
+            
+            # Add topic weights
+            subreddit_topics[subreddit]["topicCounts"] += topic_assignments[i]
+        
+        # Format subreddit data
+        subreddits_data = []
+        for subreddit, data in subreddit_topics.items():
+            # Get top 3 topics for this subreddit
+            top_topics_indices = np.argsort(data["topicCounts"])[-3:][::-1]
+            
+            subreddits_data.append({
+                "name": data["name"],
+                "topTopics": top_topics_indices.tolist(),
+                "postCount": data["postCount"]
             })
         
+        # Sort subreddits by post count
+        subreddits_data.sort(key=lambda x: x["postCount"], reverse=True)
+        
+        # Return formatted data
         return jsonify({
             "topics": topics,
-            "document_count": len(texts),
-            "topic_distribution": topic_distribution[:100]  # Return first 100 for visualization
+            "subreddits": subreddits_data,
+            "timeData": time_data
         })
         
     except Exception as e:
