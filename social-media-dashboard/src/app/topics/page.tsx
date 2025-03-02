@@ -365,7 +365,17 @@ const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading
   );
 };
 
+// Main component wrapped with ClientOnly to prevent hydration errors
 export default function TopicModelingPage() {
+  return (
+    <ClientOnly>
+      <TopicModelingContent />
+    </ClientOnly>
+  );
+}
+
+// Separate the content to a different component
+function TopicModelingContent() {
   const [loading, setLoading] = useState(true);
   const [topicData, setTopicData] = useState<TopicModelingData | null>(null);
   const [selectedTopic, setSelectedTopic] = useState<number | null>(null);
@@ -518,7 +528,7 @@ export default function TopicModelingPage() {
   };
   
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }} suppressHydrationWarning>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           Topic Modeling
@@ -941,11 +951,6 @@ export default function TopicModelingPage() {
           </Typography>
         </Paper>
       </Box>
-      
-      <ClientOnly>
-        {/* Wrap the problematic parts with ClientOnly */}
-        {/* Content that may cause hydration errors */}
-      </ClientOnly>
     </Box>
   );
 } 
