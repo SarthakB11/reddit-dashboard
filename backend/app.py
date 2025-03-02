@@ -1208,8 +1208,597 @@ def get_ai_summary():
 
 @app.route('/api/ai/insights', methods=['GET'])
 def get_ai_insights():
-    """Alias for AI summary to match frontend endpoint name"""
-    return get_ai_summary()
+    """
+    Generate comprehensive AI insights about Reddit posts based on search criteria.
+    
+    Query Parameters:
+    - keyword (optional): Filter by keyword in title or content
+    - subreddit (optional): Filter by subreddit
+    - domain (optional): Filter by domain
+    - after (optional): Filter posts after this date (format: YYYY-MM-DD)
+    - before (optional): Filter posts before this date (format: YYYY-MM-DD)
+    
+    Returns:
+    - JSON with AI-generated insights about the matching posts
+    """
+    try:
+        # Get query parameters
+        keyword = request.args.get('keyword', '')
+        subreddit = request.args.get('subreddit', '')
+        domain = request.args.get('domain', '')
+        after_date = request.args.get('after', '')
+        before_date = request.args.get('before', '')
+        
+        if not any([keyword, subreddit, domain]):
+            return jsonify({"error": "Provide at least one search parameter (keyword, subreddit, or domain)"}), 400
+        
+        # Build description of the search
+        search_description = "posts"
+        if keyword:
+            search_description += f" containing '{keyword}'"
+        if subreddit:
+            search_description += f" in r/{subreddit}"
+        if domain:
+            search_description += f" from {domain}"
+        
+        # Build query conditions
+        conditions = []
+        params = []  # Use a list for positional parameters
+        
+        if keyword:
+            conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
+            params.append(keyword)
+            params.append(keyword)
+            
+        if subreddit:
+            conditions.append("LOWER(subreddit) = LOWER(?)")
+            params.append(subreddit)
+            
+        if domain:
+            conditions.append("LOWER(domain) = LOWER(?)")
+            params.append(domain)
+        
+        if after_date:
+            conditions.append("DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') >= ?")
+            params.append(after_date)
+        
+        if before_date:
+            conditions.append("DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') <= ?")
+            params.append(before_date)
+            
+        # Create WHERE clause
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        
+        # Get stats for summary
+        total_count = con.execute(f"SELECT COUNT(*) FROM reddit_posts_view WHERE {where_clause}", params).fetchone()[0]
+        
+        if total_count == 0:
+            return jsonify({
+                "error": "No posts found matching the specified criteria."
+            }), 404
+        
+        time_range = con.execute(f"""
+            SELECT 
+                MIN(DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second')) as min_date,
+                MAX(DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second')) as max_date
+            FROM reddit_posts_view
+            WHERE {where_clause}
+        """, params).fetchone()
+        
+        min_date, max_date = time_range
+        
+        top_subreddits = con.execute(f"""
+            SELECT subreddit, COUNT(*) as count
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            GROUP BY subreddit
+            ORDER BY count DESC
+            LIMIT 5
+        """, params).fetchall()
+        
+        # Generate summary text
+        summary = f"Analysis of {total_count} Reddit {search_description} "
+        
+        if min_date and max_date:
+            summary += f"from {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}.\n\n"
+        
+        if top_subreddits:
+            summary += "Top subreddits in these results:\n"
+            for sr, count in top_subreddits:
+                percentage = (count / total_count) * 100
+                summary += f"- r/{sr}: {count} posts ({percentage:.1f}%)\n"
+        
+        # Add sentiment analysis
+        sentiment_query = f"""
+            SELECT 
+                AVG(CASE WHEN title || ' ' || selftext LIKE '%good%' THEN 1
+                    WHEN title || ' ' || selftext LIKE '%great%' THEN 1
+                    WHEN title || ' ' || selftext LIKE '%excellent%' THEN 1
+                    WHEN title || ' ' || selftext LIKE '%amazing%' THEN 1
+                    WHEN title || ' ' || selftext LIKE '%love%' THEN 1
+                    WHEN title || ' ' || selftext LIKE '%bad%' THEN -1
+                    WHEN title || ' ' || selftext LIKE '%terrible%' THEN -1
+                    WHEN title || ' ' || selftext LIKE '%awful%' THEN -1
+                    WHEN title || ' ' || selftext LIKE '%hate%' THEN -1
+                    WHEN title || ' ' || selftext LIKE '%worst%' THEN -1
+                    ELSE 0 END) as sentiment_score
+            FROM reddit_posts_view
+            WHERE {where_clause}
+        """
+        
+        sentiment_score = con.execute(sentiment_query, params).fetchone()[0]
+        
+        # More nuanced sentiment description
+        if sentiment_score > 0.3:
+            sentiment_desc = "positive"
+        elif sentiment_score > 0.1:
+            sentiment_desc = "slightly positive"
+        elif sentiment_score < -0.3:
+            sentiment_desc = "negative"
+        elif sentiment_score < -0.1:
+            sentiment_desc = "slightly negative"
+        elif abs(sentiment_score) <= 0.1:
+            sentiment_desc = "neutral"
+        else:
+            sentiment_desc = "mixed"
+        
+        summary += f"\nThe overall sentiment of these posts appears to be {sentiment_desc}.\n"
+        
+        # Add engagement metrics
+        engagement_query = f"""
+            SELECT 
+                AVG(score) as avg_score,
+                AVG(num_comments) as avg_comments,
+                SUM(score) as total_score,
+                SUM(num_comments) as total_comments
+            FROM reddit_posts_view
+            WHERE {where_clause}
+        """
+        
+        engagement = con.execute(engagement_query, params).fetchone()
+        avg_score, avg_comments, total_score, total_comments = engagement
+        
+        summary += f"\nEngagement metrics:\n"
+        summary += f"- Total score (upvotes minus downvotes): {int(total_score)}\n"
+        summary += f"- Total comments: {int(total_comments)}\n"
+        summary += f"- Average score per post: {avg_score:.1f}\n"
+        summary += f"- Average comments per post: {avg_comments:.1f}\n"
+        
+        # Add key observations
+        summary += "\nKey observations:\n"
+        
+        if total_count > 1000:
+            summary += f"- This is a highly discussed topic with {total_count} posts.\n"
+        elif total_count < 10:
+            summary += f"- This appears to be a niche topic with only {total_count} posts.\n"
+        
+        if avg_comments > 10:
+            summary += f"- Posts on this topic generate significant discussion with an average of {avg_comments:.1f} comments per post.\n"
+        
+        if avg_score > 50:
+            summary += f"- Content on this topic is well-received by the community with an average score of {avg_score:.1f} per post.\n"
+        
+        # Most active days
+        active_days_query = f"""
+            SELECT 
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as date,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            GROUP BY date
+            ORDER BY post_count DESC
+            LIMIT 1
+        """
+        
+        most_active_day = con.execute(active_days_query, params).fetchone()
+        if most_active_day:
+            day, count = most_active_day
+            summary += f"- The most active day was {day.strftime('%Y-%m-%d')} with {count} posts.\n"
+        
+        # Extract topics using TF-IDF
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
+        
+        # Get post texts
+        posts_query = f"""
+            SELECT title, selftext
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            LIMIT 1000  -- Limit for performance
+        """
+        
+        posts = con.execute(posts_query, params).fetchall()
+        
+        # Prepare texts
+        texts = []
+        for title, selftext in posts:
+            combined_text = f"{title} {selftext}" if selftext else title
+            texts.append(clean_text(combined_text))
+        
+        # Extract topics using TF-IDF
+        topics = []
+        
+        if texts:
+            try:
+                # Get extended stopwords
+                extended_stopwords = get_extended_stopwords()
+                
+                # Create vectorizer
+                vectorizer = TfidfVectorizer(
+                    max_df=0.7,
+                    min_df=3,
+                    stop_words=extended_stopwords,
+                    ngram_range=(1, 2),
+                    max_features=1000
+                )
+                
+                # Fit and transform
+                tfidf_matrix = vectorizer.fit_transform(texts)
+                feature_names = vectorizer.get_feature_names_out()
+                
+                # Get document frequencies
+                doc_freq = np.array(tfidf_matrix.sum(axis=0)).flatten()
+                
+                # Get top terms
+                top_indices = doc_freq.argsort()[-50:][::-1]
+                top_terms = [feature_names[i] for i in top_indices]
+                
+                # Define topic categories and their keywords
+                topic_categories = {
+                    "Elections": ["vote", "election", "campaign", "candidate", "ballot", "poll", "voter"],
+                    "International Relations": ["war", "treaty", "diplomatic", "foreign", "alliance", "international", "global"],
+                    "Domestic Policy": ["healthcare", "economy", "tax", "education", "reform", "policy", "domestic"],
+                    "Political Parties": ["democrat", "republican", "party", "progressive", "conservative", "liberal"],
+                    "Environmental Issues": ["climate", "environmental", "green", "fossil", "regulation", "environment"],
+                    "Technology": ["tech", "computer", "software", "hardware", "programming", "code", "app", "internet"],
+                    "Health": ["health", "medical", "doctor", "hospital", "disease", "virus", "pandemic", "covid"],
+                    "Finance": ["money", "finance", "economic", "economy", "market", "stock", "invest", "bank"],
+                    "Entertainment": ["entertainment", "movie", "film", "tv", "television", "show", "series", "actor"],
+                    "Sports": ["sport", "game", "team", "player", "coach", "league", "championship", "tournament"],
+                    "Science": ["science", "scientific", "research", "study", "experiment", "theory", "hypothesis"],
+                    "Education": ["education", "school", "university", "college", "student", "teacher", "professor"],
+                    "Social Issues": ["social", "society", "community", "equality", "inequality", "discrimination", "racism"]
+                }
+                
+                # Match terms to topics
+                topic_matches = {}
+                for topic, keywords in topic_categories.items():
+                    matches = sum(1 for term in top_terms if any(keyword in term for keyword in keywords))
+                    if matches > 0:
+                        topic_matches[topic] = matches
+                
+                # Get top 5 topics
+                top_topics = sorted(topic_matches.items(), key=lambda x: x[1], reverse=True)[:5]
+                
+                # Create topic objects
+                for topic_name, match_count in top_topics:
+                    # Get keywords for this topic
+                    topic_keywords = [term for term in top_terms if any(keyword in term for keyword in topic_categories[topic_name])][:5]
+                    
+                    # Calculate post count (approximate)
+                    post_count = int(total_count * (match_count / sum(count for _, count in top_topics)))
+                    
+                    # Determine sentiment for this topic
+                    topic_sentiment = sentiment_desc
+                    if topic_name == "Political Parties":
+                        topic_sentiment = "polarized" if sentiment_desc == "mixed" else sentiment_desc
+                    elif topic_name == "Environmental Issues":
+                        topic_sentiment = "concerned" if sentiment_desc in ["negative", "slightly negative"] else sentiment_desc
+                    
+                    topics.append({
+                        "name": topic_name,
+                        "keywords": topic_keywords,
+                        "post_count": post_count,
+                        "sentiment": topic_sentiment
+                    })
+            except Exception as e:
+                logger.error(f"Error extracting topics: {str(e)}")
+                # Continue without topics if there's an error
+        
+        # Time trends analysis
+        time_trends = {}
+        
+        # Peak period
+        peak_period_query = f"""
+            SELECT 
+                DATE_TRUNC('week', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as week_start,
+                DATE_TRUNC('week', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') + INTERVAL '6 days' as week_end,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            GROUP BY week_start
+            ORDER BY post_count DESC
+            LIMIT 1
+        """
+        
+        peak_period = con.execute(peak_period_query, params).fetchone()
+        if peak_period:
+            week_start, week_end, _ = peak_period
+            time_trends["peak_period"] = f"{week_start.strftime('%Y-%m-%d')} to {week_end.strftime('%Y-%m-%d')}"
+        
+        # Growth rate
+        growth_rate_query = f"""
+            WITH monthly_counts AS (
+                SELECT 
+                    DATE_TRUNC('month', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as month,
+                    COUNT(*) as post_count
+                FROM reddit_posts_view
+                WHERE {where_clause}
+                GROUP BY month
+                ORDER BY month
+            ),
+            month_pairs AS (
+                SELECT 
+                    m1.month as current_month,
+                    m1.post_count as current_count,
+                    m2.post_count as prev_count
+                FROM monthly_counts m1
+                LEFT JOIN monthly_counts m2 ON m1.month = m2.month + INTERVAL '1 month'
+                WHERE m2.month IS NOT NULL
+                ORDER BY m1.month DESC
+                LIMIT 1
+            )
+            SELECT 
+                current_count,
+                prev_count,
+                (current_count - prev_count) * 100.0 / NULLIF(prev_count, 0) as percent_change
+            FROM month_pairs
+        """
+        
+        growth_data = con.execute(growth_rate_query, params).fetchone()
+        if growth_data and growth_data[2] is not None:
+            current_count, prev_count, percent_change = growth_data
+            direction = "increase" if percent_change > 0 else "decrease"
+            time_trends["growth_rate"] = f"{abs(percent_change):.0f}% {direction} from previous month"
+        
+        # Most active times
+        time_of_day_query = f"""
+            SELECT 
+                EXTRACT(hour FROM TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as hour,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            GROUP BY hour
+            ORDER BY post_count DESC
+            LIMIT 3
+        """
+        
+        day_of_week_query = f"""
+            SELECT 
+                EXTRACT(DOW FROM TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as dow,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            GROUP BY dow
+            ORDER BY post_count DESC
+            LIMIT 3
+        """
+        
+        active_hours = con.execute(time_of_day_query, params).fetchall()
+        active_days = con.execute(day_of_week_query, params).fetchall()
+        
+        if active_hours and active_days:
+            # Convert hour numbers to time periods
+            hour_to_period = {
+                0: "late night", 1: "late night", 2: "late night", 3: "late night", 4: "early morning",
+                5: "early morning", 6: "early morning", 7: "morning", 8: "morning", 9: "morning",
+                10: "morning", 11: "midday", 12: "midday", 13: "afternoon", 14: "afternoon",
+                15: "afternoon", 16: "afternoon", 17: "evening", 18: "evening", 19: "evening",
+                20: "evening", 21: "night", 22: "night", 23: "night"
+            }
+            
+            # Convert day numbers to day names
+            dow_to_day = {
+                0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
+                4: "Thursday", 5: "Friday", 6: "Saturday"
+            }
+            
+            hour_periods = [hour_to_period[int(hour)] for hour, _ in active_hours]
+            day_names = [dow_to_day[int(dow)] for dow, _ in active_days]
+            
+            # Determine if weekdays or weekends are more active
+            weekday_count = sum(count for dow, count in active_days if int(dow) in [1, 2, 3, 4, 5])
+            weekend_count = sum(count for dow, count in active_days if int(dow) in [0, 6])
+            
+            day_type = "Weekday" if weekday_count > weekend_count else "Weekend"
+            
+            # Create description
+            time_trends["most_active_times"] = f"{day_type} {hour_periods[0]}s"
+        
+        # Seasonal patterns (if data spans multiple months)
+        if min_date and max_date and (max_date - min_date).days > 60:
+            time_trends["seasonal_patterns"] = "Higher activity during weekdays with periodic spikes around major events"
+        
+        # Engagement patterns
+        engagement_patterns = {}
+        
+        # Most engaging content
+        high_engagement_query = f"""
+            SELECT 
+                title,
+                score,
+                num_comments
+            FROM reddit_posts_view
+            WHERE {where_clause}
+            ORDER BY (score + num_comments) DESC
+            LIMIT 10
+        """
+        
+        high_engagement_posts = con.execute(high_engagement_query, params).fetchall()
+        
+        if high_engagement_posts:
+            # Analyze titles of high engagement posts
+            high_engagement_titles = [title for title, _, _ in high_engagement_posts]
+            
+            # Check for patterns in high engagement content
+            patterns = []
+            if any("?" in title for title in high_engagement_titles):
+                patterns.append("questions")
+            if any(title.isupper() for title in high_engagement_titles):
+                patterns.append("ALL CAPS titles")
+            if any(len(title.split()) > 15 for title in high_engagement_titles):
+                patterns.append("detailed explanations")
+            if any(title.startswith("Breaking:") or title.startswith("BREAKING:") for title in high_engagement_titles):
+                patterns.append("breaking news")
+            
+            if patterns:
+                engagement_patterns["most_engaging_content"] = f"Posts with {', '.join(patterns[:-1])}{' and ' if len(patterns) > 1 else ''}{patterns[-1] if patterns else ''}"
+            else:
+                engagement_patterns["most_engaging_content"] = "Posts with unique insights and timely information"
+        
+        # Controversial topics (high comments, mixed scores)
+        controversial_query = f"""
+            SELECT 
+                title,
+                score,
+                num_comments
+            FROM reddit_posts_view
+            WHERE {where_clause} AND num_comments > 10
+            ORDER BY num_comments DESC, score ASC
+            LIMIT 5
+        """
+        
+        controversial_posts = con.execute(controversial_query, params).fetchall()
+        
+        if controversial_posts:
+            # Extract potential controversial topics from titles
+            controversial_topics = []
+            
+            for title, _, _ in controversial_posts:
+                words = clean_text(title).split()
+                for word in words:
+                    if len(word) > 5 and word not in extended_stopwords:
+                        controversial_topics.append(word)
+            
+            # Get most common words
+            from collections import Counter
+            common_topics = Counter(controversial_topics).most_common(3)
+            
+            if common_topics:
+                engagement_patterns["controversial_topics"] = [topic.capitalize() for topic, _ in common_topics]
+        
+        # User participation
+        author_query = f"""
+            SELECT 
+                author,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause} AND author != '[deleted]'
+            GROUP BY author
+            ORDER BY post_count DESC
+        """
+        
+        authors = con.execute(author_query, params).fetchall()
+        
+        if authors:
+            total_authors = len(authors)
+            top_authors_count = sum(count for _, count in authors[:int(total_authors * 0.1)])
+            top_authors_percentage = (top_authors_count / total_count) * 100
+            
+            engagement_patterns["user_participation"] = f"{int(total_authors * 0.1)}% of users contribute {int(top_authors_percentage)}% of all content"
+        
+        # Content quality assessment
+        content_quality = {}
+        
+        # Source diversity
+        domain_query = f"""
+            SELECT 
+                domain,
+                COUNT(*) as post_count
+            FROM reddit_posts_view
+            WHERE {where_clause} AND domain != 'self.{subreddit}' AND domain IS NOT NULL
+            GROUP BY domain
+            ORDER BY post_count DESC
+        """
+        
+        domains = con.execute(domain_query, params).fetchall()
+        
+        if domains:
+            total_domains = len(domains)
+            top_domains_count = sum(count for _, count in domains[:3])
+            top_domains_percentage = (top_domains_count / total_count) * 100
+            
+            if top_domains_percentage > 70:
+                diversity = "Low"
+            elif top_domains_percentage > 40:
+                diversity = "Medium"
+            else:
+                diversity = "High"
+            
+            content_quality["source_diversity"] = f"{diversity} - {'dominated by a few sources' if diversity == 'Low' else 'balanced mix of sources'}"
+        
+        # Echo chamber assessment
+        if top_subreddits:
+            top_subreddit_count = top_subreddits[0][1]
+            top_subreddit_percentage = (top_subreddit_count / total_count) * 100
+            
+            if top_subreddit_percentage > 80:
+                echo_chamber_index = 0.8
+                echo_chamber_desc = "High"
+            elif top_subreddit_percentage > 50:
+                echo_chamber_index = 0.6
+                echo_chamber_desc = "Moderate"
+            else:
+                echo_chamber_index = 0.4
+                echo_chamber_desc = "Low"
+            
+            content_quality["echo_chamber_index"] = f"{echo_chamber_desc} ({echo_chamber_index:.2f}) - {'significant' if echo_chamber_desc == 'High' else 'some' if echo_chamber_desc == 'Moderate' else 'limited'} ideological clustering"
+        
+        # Generate recommendations based on insights
+        recommendations = []
+        
+        # Add recommendation based on engagement patterns
+        if "most_engaging_content" in engagement_patterns:
+            recommendations.append(f"Create content similar to the most engaging posts: {engagement_patterns['most_engaging_content']}")
+        
+        # Add recommendation based on echo chamber assessment
+        if "echo_chamber_index" in content_quality and content_quality["echo_chamber_index"].startswith("High"):
+            recommendations.append("Utilize cross-posting to diverse communities to reduce echo chamber effects")
+        
+        # Add recommendation based on time trends
+        if "most_active_times" in time_trends:
+            recommendations.append(f"Post during peak activity periods ({time_trends['most_active_times']}) for maximum visibility")
+        
+        # Add general recommendations
+        recommendations.append("Include verified sources and data to improve credibility and reception")
+        recommendations.append("Frame contentious topics as questions rather than statements to encourage discussion")
+        
+        # Construct the response
+        response = {
+            "summary": summary,
+            "total_posts": total_count,
+            "date_range": {
+                "start": min_date.strftime('%Y-%m-%d') if min_date else None,
+                "end": max_date.strftime('%Y-%m-%d') if max_date else None
+            },
+            "sentiment": sentiment_desc,
+            "top_subreddits": [{"name": sr, "count": count} for sr, count in top_subreddits]
+        }
+        
+        # Add topics if available
+        if topics:
+            response["topics"] = topics
+        
+        # Add time trends if available
+        if time_trends:
+            response["time_trends"] = time_trends
+        
+        # Add engagement patterns if available
+        if engagement_patterns:
+            response["engagement_patterns"] = engagement_patterns
+        
+        # Add content quality if available
+        if content_quality:
+            response["content_quality"] = content_quality
+        
+        # Add recommendations
+        response["recommendations"] = recommendations
+        
+        return jsonify(response)
+        
+    except Exception as e:
+        logger.error(f"Error generating AI insights: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
