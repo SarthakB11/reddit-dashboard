@@ -105,7 +105,7 @@ def get_basic_stats():
         # Posts over time (by day)
         posts_over_time = con.execute("""
             SELECT 
-                DATE_TRUNC('day', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second') AS date,
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS date,
                 COUNT(*) as post_count
             FROM reddit_posts_view
             GROUP BY date
@@ -162,30 +162,30 @@ def search_posts():
         
         # Build the query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         if subreddit:
             conditions.append("LOWER(subreddit) = LOWER(?)")
-            params['subreddit'] = subreddit
+            params.append(subreddit)
             
         if author:
             conditions.append("LOWER(author) = LOWER(?)")
-            params['author'] = author
+            params.append(author)
             
         if domain:
             conditions.append("LOWER(domain) = LOWER(?)")
-            params['domain'] = domain
+            params.append(domain)
             
         if start_date:
             try:
                 start_timestamp = datetime.strptime(start_date, '%Y-%m-%d').timestamp()
                 conditions.append("created_utc >= ?")
-                params['start_date'] = start_timestamp
+                params.append(start_timestamp)
             except ValueError:
                 return jsonify({"error": "Invalid start_date format. Use YYYY-MM-DD"}), 400
                 
@@ -193,7 +193,7 @@ def search_posts():
             try:
                 end_timestamp = datetime.strptime(end_date, '%Y-%m-%d').timestamp() + 86399  # End of day
                 conditions.append("created_utc <= ?")
-                params['end_date'] = end_timestamp
+                params.append(end_timestamp)
             except ValueError:
                 return jsonify({"error": "Invalid end_date format. Use YYYY-MM-DD"}), 400
         
@@ -256,29 +256,29 @@ def get_timeseries():
         keyword = request.args.get('keyword', '')
         subreddit = request.args.get('subreddit', '')
         domain = request.args.get('domain', '')
-        interval = request.args.get('interval', 'day')  # day, week, month
+        interval = request.args.get('interval', 'day')  # hour, day, week, month
         
         # Validate interval
-        valid_intervals = ['day', 'week', 'month']
+        valid_intervals = ['hour', 'day', 'week', 'month']
         if interval not in valid_intervals:
             return jsonify({"error": f"Invalid interval. Use one of: {', '.join(valid_intervals)}"}), 400
         
         # Build query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         if subreddit:
             conditions.append("LOWER(subreddit) = LOWER(?)")
-            params['subreddit'] = subreddit
+            params.append(subreddit)
             
         if domain:
             conditions.append("LOWER(domain) = LOWER(?)")
-            params['domain'] = domain
+            params.append(domain)
             
         # Create WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -286,7 +286,7 @@ def get_timeseries():
         # Execute the query
         query = f"""
             SELECT 
-                DATE_TRUNC('{interval}', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second') AS time_period,
+                DATE_TRUNC('{interval}', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS time_period,
                 COUNT(*) as post_count,
                 SUM(num_comments) as comment_count,
                 AVG(score) as avg_score
@@ -301,7 +301,12 @@ def get_timeseries():
         # Format the results
         timeseries_data = []
         for row in result:
-            time_str = row[0].strftime('%Y-%m-%d')
+            # Format the time based on the interval
+            if interval == 'hour':
+                time_str = row[0].strftime('%Y-%m-%d %H:00')  # Include hour in format for hourly data
+            else:
+                time_str = row[0].strftime('%Y-%m-%d')  # Just date for daily, weekly, monthly
+                
             timeseries_data.append({
                 "period": time_str,
                 "post_count": row[1],
@@ -328,12 +333,12 @@ def get_network_data():
         
         # Build the query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         # Create WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -437,20 +442,20 @@ def get_sentiment_analysis():
         
         # Build query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters instead of a dictionary
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         if subreddit:
             conditions.append("LOWER(subreddit) = LOWER(?)")
-            params['subreddit'] = subreddit
+            params.append(subreddit)
             
         if domain:
             conditions.append("LOWER(domain) = LOWER(?)")
-            params['domain'] = domain
+            params.append(domain)
             
         # Create WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -459,7 +464,7 @@ def get_sentiment_analysis():
         query = f"""
             SELECT 
                 id, title, selftext, 
-                DATE_TRUNC('day', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second') AS date
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') AS date
             FROM reddit_posts_view
             WHERE {where_clause}
             ORDER BY created_utc
@@ -537,20 +542,20 @@ def get_topic_modeling():
             
         # Build query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         if subreddit:
             conditions.append("LOWER(subreddit) = LOWER(?)")
-            params['subreddit'] = subreddit
+            params.append(subreddit)
             
         if domain:
             conditions.append("LOWER(domain) = LOWER(?)")
-            params['domain'] = domain
+            params.append(domain)
             
         # Create WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -659,20 +664,20 @@ def get_ai_summary():
         
         # Build query conditions
         conditions = []
-        params = {}
+        params = []  # Use a list for positional parameters
         
         if keyword:
             conditions.append("(LOWER(title) LIKE '%' || LOWER(?) || '%' OR LOWER(selftext) LIKE '%' || LOWER(?) || '%')")
-            params['keyword1'] = keyword
-            params['keyword2'] = keyword
+            params.append(keyword)
+            params.append(keyword)
             
         if subreddit:
             conditions.append("LOWER(subreddit) = LOWER(?)")
-            params['subreddit'] = subreddit
+            params.append(subreddit)
             
         if domain:
             conditions.append("LOWER(domain) = LOWER(?)")
-            params['domain'] = domain
+            params.append(domain)
             
         # Create WHERE clause
         where_clause = " AND ".join(conditions) if conditions else "1=1"
@@ -682,8 +687,8 @@ def get_ai_summary():
         
         time_range = con.execute(f"""
             SELECT 
-                MIN(DATE_TRUNC('day', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second')) as min_date,
-                MAX(DATE_TRUNC('day', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second')) as max_date
+                MIN(DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second')) as min_date,
+                MAX(DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second')) as max_date
             FROM reddit_posts_view
             WHERE {where_clause}
         """, params).fetchone()
@@ -771,7 +776,7 @@ def get_ai_summary():
         # Most active days
         active_days_query = f"""
             SELECT 
-                DATE_TRUNC('day', TIMESTAMP 'epoch' + created_utc * INTERVAL '1 second') as date,
+                DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as date,
                 COUNT(*) as post_count
             FROM reddit_posts_view
             WHERE {where_clause}
@@ -799,6 +804,11 @@ def get_ai_summary():
     except Exception as e:
         logger.error(f"Error generating AI summary: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/ai/insights', methods=['GET'])
+def get_ai_insights():
+    """Alias for AI summary to match frontend endpoint name"""
+    return get_ai_summary()
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

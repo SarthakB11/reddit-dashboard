@@ -17,6 +17,7 @@ import {
   IconButton,
   Tooltip,
   useTheme,
+  Alert,
 } from '@mui/material';
 import { useRouter } from 'next/navigation';
 import TimelineIcon from '@mui/icons-material/Timeline';
@@ -37,6 +38,13 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import { useColorMode } from '@/app/components/ThemeRegistry';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
+import {
+  TrendingUp as TrendingUpIconMUI,
+  TrendingDown as TrendingDownIconMUI,
+  TrendingFlat as TrendingFlatIconMUI,
+  Language as LanguageIcon,
+  Link as LinkIcon,
+} from '@mui/icons-material';
 
 // Define type for search parameters
 interface SearchParams {
@@ -94,89 +102,11 @@ import TextField from '@mui/material/TextField';
 
 // Define interface for dashboard stats
 interface DashboardStats {
-  totalPosts: number;
-  totalSubreddits: number;
-  totalAuthors: number;
-  postsToday: number;
-  postsTrend: 'up' | 'down' | 'flat';
-  postsTrendPercentage: number;
-  topSubreddits: {
-    name: string;
-    posts: number;
-    trend: 'up' | 'down' | 'flat';
-  }[];
-  topTopics: {
-    name: string;
-    percentage: number;
-    trend: 'up' | 'down' | 'flat';
-  }[];
-  sentimentOverview: {
-    positive: number;
-    neutral: number;
-    negative: number;
-  };
-}
-
-// Function to generate mock dashboard data
-const generateMockDashboardData = (): DashboardStats => {
-  return {
-    totalPosts: 24750,
-    totalSubreddits: 128,
-    totalAuthors: 8432,
-    postsToday: 1250,
-    postsTrend: 'up',
-    postsTrendPercentage: 12,
-    topSubreddits: [
-      { name: 'technology', posts: 3450, trend: 'up' },
-      { name: 'politics', posts: 2980, trend: 'up' },
-      { name: 'science', posts: 2540, trend: 'up' },
-      { name: 'news', posts: 2120, trend: 'down' },
-      { name: 'worldnews', posts: 1890, trend: 'flat' },
-    ],
-    topTopics: [
-      { name: 'Technology', percentage: 23, trend: 'up' },
-      { name: 'Politics', percentage: 19, trend: 'up' },
-      { name: 'Science', percentage: 17, trend: 'up' },
-      { name: 'Entertainment', percentage: 12, trend: 'flat' },
-      { name: 'Sports', percentage: 8, trend: 'down' },
-    ],
-    sentimentOverview: {
-      positive: 35,
-      neutral: 45,
-      negative: 20,
-    }
-  };
-};
-
-// Format number with commas
-const formatNumber = (num: number): string => {
-  return num.toLocaleString();
-};
-
-// Ensure consistent component types for all Typography
-// Simple wrapper with consistent props
-const SafeTypography = (props: React.ComponentProps<typeof Typography>) => {
-  const { children, ...rest } = props;
-  return (
-    <Typography component="div" {...rest}>
-      {children}
-    </Typography>
-  );
-};
-
-// Add client-side only rendering to fix hydration issues
-function ClientOnly({ children }: { children: React.ReactNode }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return null;
-  }
-
-  return <>{children}</>;
+  total_posts: number;
+  top_subreddits: Array<{ subreddit: string; count: number }>;
+  top_authors: Array<{ author: string; count: number }>;
+  top_domains: Array<{ domain: string; count: number }>;
+  posts_over_time: Array<{ date: string; count: number }>;
 }
 
 export default function DashboardPage() {
@@ -185,22 +115,28 @@ export default function DashboardPage() {
   const { mode } = useColorMode();
   const isDarkMode = mode === 'dark';
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    // Simulate API call with timeout
     const fetchData = async () => {
-      setLoading(true);
-      
-      // Simulate network delay
-      setTimeout(() => {
-        const data = generateMockDashboardData();
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch('http://localhost:5000/api/stats');
+        if (!response.ok) {
+          throw new Error('Failed to fetch dashboard data');
+        }
+        const data = await response.json();
         setStats(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+      } finally {
         setLoading(false);
-      }, 1500);
+      }
     };
-    
+
     fetchData();
   }, [refreshing]);
 
@@ -208,7 +144,7 @@ export default function DashboardPage() {
     setRefreshing(prev => !prev);
   };
 
-  const getTrendIcon = (trend: 'up' | 'down' | 'flat') => {
+  const getTrendIcon = (trend: string) => {
     switch (trend) {
       case 'up':
         return <TrendingUpIcon sx={{ color: 'success.main' }} />;
@@ -219,7 +155,7 @@ export default function DashboardPage() {
     }
   };
 
-  const getTrendColor = (trend: 'up' | 'down' | 'flat') => {
+  const getTrendColor = (trend: string) => {
     switch (trend) {
       case 'up':
         return 'success.main';
@@ -233,6 +169,30 @@ export default function DashboardPage() {
   const navigateTo = (path: string) => {
     router.push(path);
   };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert severity="error" sx={{ mt: 2 }}>
+        {error}
+      </Alert>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <Alert severity="info" sx={{ mt: 2 }}>
+        No data available
+      </Alert>
+    );
+  }
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 2, md: 3 } }}>
@@ -292,104 +252,83 @@ export default function DashboardPage() {
         <InfoIcon sx={{ mr: 1 }} /> Key Metrics
       </Typography>
       
-      {loading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card className="card-hover">
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Total Posts
-                  </Typography>
-                  <ArticleIcon color="primary" />
-                </Box>
-                <Typography variant="h4" fontWeight="bold">
-                  {formatNumber(stats?.totalPosts || 0)}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card className="card-hover">
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Total Posts
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Across all subreddits
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <Card className="card-hover">
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Unique Authors
-                  </Typography>
-                  <PersonIcon color="secondary" />
-                </Box>
-                <Typography variant="h4" fontWeight="bold">
-                  {formatNumber(stats?.totalAuthors || 0)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Contributing users
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <Card className="card-hover">
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Subreddits
-                  </Typography>
-                  <ForumIcon sx={{ color: '#4caf50' }} />
-                </Box>
-                <Typography variant="h4" fontWeight="bold">
-                  {formatNumber(stats?.totalSubreddits || 0)}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Different communities
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={3}>
-            <Card className="card-hover">
-              <CardContent>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Posts Today
-                  </Typography>
-                  <TrendingUpIcon sx={{ color: '#ff9800' }} />
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography variant="h4" fontWeight="bold">
-                    {formatNumber(stats?.postsToday || 0)}
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
-                    {getTrendIcon(stats?.postsTrend || 'flat')}
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
-                        color: getTrendColor(stats?.postsTrend || 'flat'),
-                        ml: 0.5,
-                        fontWeight: 'bold'
-                      }}
-                    >
-                      {stats?.postsTrendPercentage}%
-                    </Typography>
-                  </Box>
-                </Box>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  Compared to yesterday
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
+                <ArticleIcon color="primary" />
+              </Box>
+              <Typography variant="h4" fontWeight="bold">
+                {stats.total_posts.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Across all subreddits
+              </Typography>
+            </CardContent>
+          </Card>
         </Grid>
-      )}
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card className="card-hover">
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Active Subreddits
+                </Typography>
+                <LanguageIcon color="primary" />
+              </Box>
+              <Typography variant="h4" fontWeight="bold">
+                {stats.top_subreddits.length.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Different communities
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card className="card-hover">
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  Unique Authors
+                </Typography>
+                <PersonIcon color="secondary" />
+              </Box>
+              <Typography variant="h4" fontWeight="bold">
+                {stats.top_authors.length.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Contributing users
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        
+        <Grid item xs={12} sm={6} md={3}>
+          <Card className="card-hover">
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  External Domains
+                </Typography>
+                <LinkIcon color="primary" />
+              </Box>
+              <Typography variant="h4" fontWeight="bold">
+                {stats.top_domains.length.toLocaleString()}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Different domains
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
       
       {/* Analysis Tools */}
       <Typography variant="h5" gutterBottom sx={{ mt: 5, mb: 3 }}>
@@ -687,10 +626,10 @@ export default function DashboardPage() {
                   </Typography>
                   
                   <Stack spacing={1.5} sx={{ mt: 2 }}>
-                    {stats?.topSubreddits.map((subreddit, index) => (
-                      <Box key={subreddit.name} sx={{ display: 'flex', alignItems: 'center' }}>
+                    {stats.top_subreddits.map((subreddit, index) => (
+                      <Box key={subreddit.subreddit} sx={{ display: 'flex', alignItems: 'center' }}>
                         <Typography variant="body2" sx={{ minWidth: 120 }}>
-                          r/{subreddit.name}
+                          r/{subreddit.subreddit}
                         </Typography>
                         
                         <Box sx={{ flexGrow: 1, mx: 2 }}>
@@ -698,14 +637,14 @@ export default function DashboardPage() {
                             sx={{ 
                               height: 8, 
                               bgcolor: `hsl(${index * 36}, 70%, 50%)`,
-                              width: `${(subreddit.posts / stats.topSubreddits[0].posts) * 100}%`,
+                              width: `${(subreddit.count / stats.top_subreddits[0].count) * 100}%`,
                               borderRadius: 1,
                             }} 
                           />
                         </Box>
                         
                         <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 30 }}>
-                          {getTrendIcon(subreddit.trend)}
+                          {getTrendIcon(subreddit.subreddit)}
                         </Box>
                       </Box>
                     ))}
@@ -718,14 +657,14 @@ export default function DashboardPage() {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    Top Topics
+                    Top Authors
                   </Typography>
                   
                   <Stack spacing={1.5} sx={{ mt: 2 }}>
-                    {stats?.topTopics.map((topic, index) => (
-                      <Box key={topic.name} sx={{ display: 'flex', alignItems: 'center' }}>
+                    {stats.top_authors.map((author, index) => (
+                      <Box key={author.author} sx={{ display: 'flex', alignItems: 'center' }}>
                         <Typography variant="body2" sx={{ minWidth: 120 }}>
-                          {topic.name}
+                          u/{author.author}
                         </Typography>
                         
                         <Box sx={{ flexGrow: 1, mx: 2 }}>
@@ -733,14 +672,14 @@ export default function DashboardPage() {
                             sx={{ 
                               height: 8, 
                               bgcolor: `hsl(${index * 36 + 180}, 70%, 50%)`,
-                              width: `${(topic.percentage / stats.topTopics[0].percentage) * 100}%`,
+                              width: `${(author.count / stats.top_authors[0].count) * 100}%`,
                               borderRadius: 1,
                             }} 
                           />
                         </Box>
                         
                         <Typography variant="body2">
-                          {topic.percentage}%
+                          {author.count.toLocaleString()} posts
                         </Typography>
                       </Box>
                     ))}
@@ -753,50 +692,18 @@ export default function DashboardPage() {
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    Sentiment Overview
+                    Top External Domains
                   </Typography>
                   
-                  <Box sx={{ display: 'flex', justifyContent: 'space-around', my: 3 }}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <SentimentSatisfiedAltIcon sx={{ fontSize: 40, color: 'success.main' }} />
-                      <Typography variant="h6" color="success.main">
-                        {stats?.sentimentOverview.positive}%
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Positive
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ textAlign: 'center' }}>
-                      <SentimentSatisfiedAltIcon sx={{ fontSize: 40, color: 'info.main' }} />
-                      <Typography variant="h6" color="info.main">
-                        {stats?.sentimentOverview.neutral}%
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Neutral
-                      </Typography>
-                    </Box>
-                    
-                    <Box sx={{ textAlign: 'center' }}>
-                      <SentimentSatisfiedAltIcon sx={{ fontSize: 40, color: 'error.main' }} />
-                      <Typography variant="h6" color="error.main">
-                        {stats?.sentimentOverview.negative}%
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Negative
-                      </Typography>
-                    </Box>
-                  </Box>
-                  
-                  <Box sx={{ mt: 2 }}>
-                    <Button 
-                      size="small" 
-                      onClick={() => navigateTo('/sentiment')}
-                      variant="outlined"
-                      fullWidth
-                    >
-                      View Detailed Sentiment
-                    </Button>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {stats.top_domains.map((domain) => (
+                      <Chip
+                        key={domain.domain}
+                        label={`${domain.domain} (${domain.count})`}
+                        variant="outlined"
+                        color="primary"
+                      />
+                    ))}
                   </Box>
                 </CardContent>
               </Card>

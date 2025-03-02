@@ -10,68 +10,76 @@ import {
   CardContent,
   Grid,
   Chip,
-  Avatar,
-  Divider,
+  CircularProgress,
   Paper,
   Alert,
+  Pagination,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import PersonIcon from '@mui/icons-material/Person';
 import ForumIcon from '@mui/icons-material/Forum';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import LinkIcon from '@mui/icons-material/Link';
+
+interface SearchResult {
+  id: string;
+  title: string;
+  preview_text: string;
+  author: string;
+  subreddit: string;
+  created_utc: string;
+  score: number;
+  num_comments: number;
+  url: string;
+  domain: string;
+}
+
+interface SearchResponse {
+  total: number;
+  offset: number;
+  limit: number;
+  posts: SearchResult[];
+}
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const postsPerPage = 10;
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
-    setHasSearched(true);
+    setError(null);
 
-    // Simulate API call with timeout
-    setTimeout(() => {
-      // Mock search results
-      const mockResults = [
-        {
-          id: '1',
-          title: 'Discussion about climate change policies',
-          content: 'Climate change is a pressing issue that requires immediate action. Many countries are implementing new policies to reduce carbon emissions.',
-          author: 'environmentalist123',
-          subreddit: 'environment',
-          timestamp: '2023-12-15T14:30:00Z',
-          comments: 45,
-          score: 128,
-        },
-        {
-          id: '2',
-          title: 'New AI breakthrough in natural language processing',
-          content: 'Researchers have developed a new AI model that can understand and generate human language with unprecedented accuracy.',
-          author: 'tech_enthusiast',
-          subreddit: 'technology',
-          timestamp: '2023-12-14T09:15:00Z',
-          comments: 72,
-          score: 256,
-        },
-        {
-          id: '3',
-          title: 'The impact of social media on mental health',
-          content: 'Studies show that excessive use of social media can have negative effects on mental health, particularly among teenagers.',
-          author: 'health_advocate',
-          subreddit: 'psychology',
-          timestamp: '2023-12-13T18:45:00Z',
-          comments: 89,
-          score: 195,
-        },
-      ];
+    try {
+      const response = await fetch(
+        `http://localhost:5000/api/posts/search?keyword=${encodeURIComponent(searchQuery)}&offset=${(page - 1) * postsPerPage}&limit=${postsPerPage}`
+      );
 
-      setSearchResults(mockResults);
+      if (!response.ok) {
+        throw new Error('Failed to fetch search results');
+      }
+
+      const data = await response.json();
+      setSearchResults(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while searching');
+    } finally {
       setIsSearching(false);
-    }, 1500);
+    }
+  };
+
+  const handlePageChange = (_event: React.ChangeEvent<unknown>, value: number) => {
+    setPage(value);
+    // Create a proper form event
+    const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+    handleSearch(fakeEvent);
   };
 
   // Format date for display
@@ -81,6 +89,8 @@ export default function SearchPage() {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   };
 
@@ -122,69 +132,102 @@ export default function SearchPage() {
       
       {isSearching && (
         <Box sx={{ textAlign: 'center', py: 4 }}>
-          <Typography variant="body1">Searching...</Typography>
+          <CircularProgress />
         </Box>
       )}
       
-      {hasSearched && !isSearching && searchResults.length === 0 && (
+      {error && (
+        <Alert severity="error" sx={{ mt: 2, mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {searchResults && searchResults.posts.length === 0 && !isSearching && (
         <Alert severity="info" sx={{ mt: 2 }}>
           No results found for "{searchQuery}". Try different keywords or broaden your search.
         </Alert>
       )}
       
-      {searchResults.length > 0 && (
+      {searchResults && searchResults.posts.length > 0 && (
         <>
           <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">
-              {searchResults.length} results for "{searchQuery}"
+              {searchResults.total.toLocaleString()} results for "{searchQuery}"
             </Typography>
           </Box>
           
           <Grid container spacing={3}>
-            {searchResults.map((result) => (
-              <Grid item xs={12} key={result.id}>
+            {searchResults.posts.map((post) => (
+              <Grid item xs={12} key={post.id}>
                 <Card sx={{ height: '100%' }}>
                   <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
                       <Chip 
-                        label={`r/${result.subreddit}`} 
+                        label={`r/${post.subreddit}`} 
                         size="small" 
                         color="primary" 
                         variant="outlined"
                       />
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Chip
+                          icon={<ThumbUpIcon />}
+                          label={post.score}
+                          size="small"
+                          variant="outlined"
+                        />
+                        <Chip
+                          icon={<ForumIcon />}
+                          label={post.num_comments}
+                          size="small"
+                          variant="outlined"
+                        />
+                      </Box>
                     </Box>
                     
                     <Typography variant="h6" gutterBottom>
-                      {result.title}
+                      {post.title}
                     </Typography>
                     
-                    <Typography variant="body2" color="text.secondary" paragraph>
-                      {result.content}
-                    </Typography>
-                    
-                    <Divider sx={{ my: 2 }} />
+                    {post.preview_text && (
+                      <Typography variant="body2" color="text.secondary" paragraph>
+                        {post.preview_text}...
+                      </Typography>
+                    )}
                     
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, color: 'text.secondary' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <PersonIcon fontSize="small" sx={{ mr: 0.5 }} />
-                        {result.author}
+                        {post.author}
                       </Box>
                       
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
                         <CalendarTodayIcon fontSize="small" sx={{ mr: 0.5 }} />
-                        {formatDate(result.timestamp)}
+                        {formatDate(post.created_utc)}
                       </Box>
                       
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <ForumIcon fontSize="small" sx={{ mr: 0.5 }} />
-                        {result.comments} comments
-                      </Box>
+                      {post.domain && (
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <LinkIcon fontSize="small" sx={{ mr: 0.5 }} />
+                          {post.domain}
+                        </Box>
+                      )}
                     </Box>
                   </CardContent>
                 </Card>
               </Grid>
             ))}
           </Grid>
+          
+          {searchResults.total > postsPerPage && (
+            <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center' }}>
+              <Pagination
+                count={Math.ceil(searchResults.total / postsPerPage)}
+                page={page}
+                onChange={handlePageChange}
+                color="primary"
+              />
+            </Box>
+          )}
         </>
       )}
     </Box>

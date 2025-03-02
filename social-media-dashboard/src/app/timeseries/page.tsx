@@ -11,58 +11,110 @@ import {
   Button,
   ButtonGroup,
   CircularProgress,
-  Divider,
+  Alert,
   Chip,
 } from '@mui/material';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
-import TimelineIcon from '@mui/icons-material/Timeline';
+import {
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  TrendingFlat as TrendingFlatIcon,
+  Timeline as TimelineIcon,
+  CloudDone as CloudDoneIcon,
+  Code as CodeIcon,
+} from '@mui/icons-material';
+import dynamic from 'next/dynamic';
+import { PlotParams } from 'react-plotly.js';
+
+// Dynamically import Plotly to avoid SSR issues
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false }) as React.ComponentType<PlotParams>;
+
+// Define the data structure for time series data
+interface TimeSeriesDataPoint {
+  period: string;
+  post_count: number;
+  comment_count: number;
+  avg_score: number;
+}
 
 export default function TimeSeriesPage() {
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [timeSeriesData, setTimeSeriesData] = useState<TimeSeriesDataPoint[]>([]);
   const [timeUnit, setTimeUnit] = useState('day');
-  const [chartData, setChartData] = useState<any>(null);
+  const [stats, setStats] = useState({
+    total_posts: 0,
+    average_posts: 0,
+    peak: { date: '', count: 0 },
+    trend: { direction: 'flat' as 'up' | 'down' | 'flat', percent_change: 0 }
+  });
+  const [dataSource, setDataSource] = useState<'backend' | 'sample'>('sample');
 
   useEffect(() => {
-    // Simulate API call with timeout
     const fetchData = async () => {
-      setLoading(true);
-      
-      // Simulate network delay
-      setTimeout(() => {
-        // Mock time series data
-        const mockData = {
-          labels: ['Jan 1', 'Jan 2', 'Jan 3', 'Jan 4', 'Jan 5', 'Jan 6', 'Jan 7', 'Jan 8', 'Jan 9', 'Jan 10'],
-          datasets: [
-            {
-              label: 'Post Volume',
-              data: [120, 190, 300, 250, 280, 500, 480, 390, 600, 550],
-              trend: 'up',
-              percentChange: 32.5,
-            }
-          ],
-          subreddits: [
-            { name: 'technology', data: [50, 80, 120, 90, 100, 200, 180, 150, 250, 220], trend: 'up' },
-            { name: 'politics', data: [30, 50, 80, 70, 90, 150, 140, 120, 180, 160], trend: 'up' },
-            { name: 'science', data: [20, 30, 50, 40, 50, 80, 90, 70, 100, 90], trend: 'up' },
-            { name: 'news', data: [10, 20, 30, 35, 25, 40, 50, 30, 45, 55], trend: 'up' },
-            { name: 'worldnews', data: [10, 10, 20, 15, 15, 30, 20, 20, 25, 25], trend: 'flat' },
-          ],
-          stats: {
-            total: 3740,
-            average: 374,
-            peak: { value: 600, date: 'Jan 9' },
-            trend: 'up',
-            percentChange: 32.5,
-          }
-        };
+      try {
+        setLoading(true);
+        setError(null);
+        const response = await fetch(`http://localhost:5000/api/timeseries?interval=${timeUnit}`);
+        if (!response.ok) {
+          throw new Error('Failed to fetch time series data');
+        }
+        const data = await response.json();
+        setTimeSeriesData(data);
+        setDataSource('backend');
         
-        setChartData(mockData);
+        // Calculate statistics from the data
+        if (data && data.length > 0) {
+          // Total posts
+          const totalPosts = data.reduce((sum: number, item: TimeSeriesDataPoint) => sum + item.post_count, 0);
+          
+          // Average posts per period
+          const avgPosts = Math.round(totalPosts / data.length);
+          
+          // Find peak
+          const peakItem = [...data].sort((a, b) => b.post_count - a.post_count)[0];
+          
+          // Calculate trend (difference between first and last period)
+          const firstPeriod = data[0];
+          const lastPeriod = data[data.length - 1];
+          let direction: 'up' | 'down' | 'flat' = 'flat';
+          let percentChange = 0;
+          
+          if (firstPeriod && lastPeriod) {
+            if (lastPeriod.post_count > firstPeriod.post_count) {
+              direction = 'up';
+            } else if (lastPeriod.post_count < firstPeriod.post_count) {
+              direction = 'down';
+            }
+            
+            if (firstPeriod.post_count > 0) {
+              percentChange = ((lastPeriod.post_count - firstPeriod.post_count) / firstPeriod.post_count) * 100;
+            }
+          }
+          
+          setStats({
+            total_posts: totalPosts,
+            average_posts: avgPosts,
+            peak: { date: peakItem.period, count: peakItem.post_count },
+            trend: { direction, percent_change: percentChange }
+          });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        // Create some sample data if the API fails
+        const sampleData = generateSampleData();
+        setTimeSeriesData(sampleData);
+        setDataSource('sample');
+        setStats({
+          total_posts: sampleData.reduce((sum, item) => sum + item.post_count, 0),
+          average_posts: Math.round(sampleData.reduce((sum, item) => sum + item.post_count, 0) / sampleData.length),
+          peak: { date: '2025-02-14', count: 633 },
+          trend: { direction: 'up', percent_change: 143 }
+        });
+      } finally {
         setLoading(false);
-      }, 1500);
+      }
     };
-    
+
     fetchData();
   }, [timeUnit]);
 
@@ -81,6 +133,51 @@ export default function TimeSeriesPage() {
     }
   };
 
+  // Function to generate sample data if API fails
+  const generateSampleData = (): TimeSeriesDataPoint[] => {
+    const today = new Date();
+    const sampleData: TimeSeriesDataPoint[] = [];
+    
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      // Generate some random data with an upward trend
+      const basePosts = 100 + Math.floor(i * 10 * Math.random());
+      sampleData.push({
+        period: dateStr,
+        post_count: basePosts,
+        comment_count: basePosts * 3 + Math.floor(Math.random() * 100),
+        avg_score: Math.floor(Math.random() * 200) + 50
+      });
+    }
+    
+    return sampleData;
+  };
+
+  // Client-side only rendering
+  const [isClient, setIsClient] = useState(false);
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (error && !timeSeriesData.length) {
+    return (
+      <Alert severity="error" sx={{ mt: 2 }}>
+        {error}
+      </Alert>
+    );
+  }
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       <Typography variant="h4" component="h1" gutterBottom>
@@ -90,6 +187,15 @@ export default function TimeSeriesPage() {
       <Typography variant="body1" paragraph color="text.secondary">
         Analyze posting activity over time to identify trends and patterns in social media content.
       </Typography>
+      
+      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+        <Chip 
+          icon={dataSource === 'backend' ? <CloudDoneIcon /> : <CodeIcon />}
+          label={dataSource === 'backend' ? 'Data from API' : 'Sample Data (API unavailable)'}
+          color={dataSource === 'backend' ? 'success' : 'warning'}
+          variant="outlined"
+        />
+      </Box>
       
       <Paper sx={{ p: 3, mb: 4 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -125,160 +231,135 @@ export default function TimeSeriesPage() {
           </ButtonGroup>
         </Box>
         
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <Box>
-            {/* Placeholder for chart - in a real app, you would use a chart library */}
-            <Box 
-              sx={{ 
-                height: 300, 
-                bgcolor: 'action.hover', 
-                borderRadius: 1, 
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mb: 3,
+        <Box sx={{ height: 400, mb: 3 }}>
+          {isClient && timeSeriesData.length > 0 && (
+            <Plot
+              data={[
+                {
+                  x: timeSeriesData.map(d => d.period),
+                  y: timeSeriesData.map(d => d.post_count),
+                  type: 'scatter',
+                  mode: 'lines+markers',
+                  marker: { color: '#1976d2' },
+                  name: 'Post Count',
+                },
+              ]}
+              layout={{
+                autosize: true,
+                margin: { l: 50, r: 20, t: 20, b: 50 },
+                xaxis: {
+                  title: 'Date',
+                  showgrid: false,
+                },
+                yaxis: {
+                  title: 'Number of Posts',
+                  showgrid: true,
+                  gridcolor: '#f0f0f0',
+                },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                showlegend: false,
               }}
-            >
+              useResizeHandler={true}
+              style={{ width: '100%', height: '100%' }}
+            />
+          )}
+          {!isClient && (
+            <Box sx={{ height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+              <TimelineIcon sx={{ fontSize: 60, opacity: 0.5, mr: 2 }} />
               <Typography variant="body1" color="text.secondary">
-                <TimelineIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
-                Time Series Chart Placeholder
+                Chart loading...
               </Typography>
             </Box>
-            
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Overall Statistics
-                    </Typography>
-                    
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          Total Posts
-                        </Typography>
-                        <Typography variant="h5">
-                          {chartData?.stats.total.toLocaleString()}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          Average Per Day
-                        </Typography>
-                        <Typography variant="h5">
-                          {chartData?.stats.average.toLocaleString()}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          Peak Volume
-                        </Typography>
-                        <Typography variant="h5">
-                          {chartData?.stats.peak.value.toLocaleString()}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          on {chartData?.stats.peak.date}
-                        </Typography>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Typography variant="body2" color="text.secondary">
-                          Overall Trend
-                        </Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          {getTrendIcon(chartData?.stats.trend)}
-                          <Typography variant="h5" sx={{ ml: 1 }}>
-                            {chartData?.stats.percentChange}%
-                          </Typography>
-                        </Box>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Top Subreddits
-                    </Typography>
-                    
-                    <Divider sx={{ mb: 2 }} />
-                    
-                    {chartData?.subreddits.map((subreddit: any, index: number) => (
-                      <Box key={subreddit.name} sx={{ mb: 1.5, display: 'flex', alignItems: 'center' }}>
-                        <Typography variant="body1" sx={{ minWidth: 120 }}>
-                          r/{subreddit.name}
-                        </Typography>
-                        
-                        <Box sx={{ flexGrow: 1, mx: 2 }}>
-                          <Box 
-                            sx={{ 
-                              height: 8, 
-                              bgcolor: `hsl(${index * 36}, 70%, 50%)`,
-                              width: `${(Math.max(...subreddit.data) / Math.max(...chartData.datasets[0].data)) * 100}%`,
-                              borderRadius: 1,
-                            }} 
-                          />
-                        </Box>
-                        
-                        {getTrendIcon(subreddit.trend)}
-                      </Box>
-                    ))}
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
-      </Paper>
-      
-      <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" gutterBottom>
-          Insights
-        </Typography>
+          )}
+        </Box>
         
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="body1" paragraph>
-            Based on the time series analysis, we can observe the following trends:
-          </Typography>
+        <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Overall Statistics
+                </Typography>
+                
+                <Grid container spacing={2}>
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      Total Posts
+                    </Typography>
+                    <Typography variant="h5">
+                      {stats.total_posts.toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      Average Per {timeUnit.charAt(0).toUpperCase() + timeUnit.slice(1)}
+                    </Typography>
+                    <Typography variant="h5">
+                      {stats.average_posts.toLocaleString()}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      Peak Volume
+                    </Typography>
+                    <Typography variant="h5">
+                      {stats.peak.count.toLocaleString()}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      on {stats.peak.date}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={6}>
+                    <Typography variant="body2" color="text.secondary">
+                      Overall Trend
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      {getTrendIcon(stats.trend.direction)}
+                      <Typography variant="h5" sx={{ ml: 1 }}>
+                        {Math.abs(stats.trend.percent_change).toFixed(1)}%
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
           
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Chip 
-              icon={<TrendingUpIcon />} 
-              label="Increasing trend in post volume" 
-              color="success" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<TimelineIcon />} 
-              label="Peak activity on weekends" 
-              color="primary" 
-              variant="outlined" 
-            />
-            <Chip 
-              label="Technology subreddit most active" 
-              color="secondary" 
-              variant="outlined" 
-            />
-          </Box>
-          
-          <Typography variant="body1">
-            The data shows a significant increase in posting activity over the analyzed period, with a 
-            {chartData?.stats.percentChange}% growth. The peak activity was observed on {chartData?.stats.peak.date} 
-            with {chartData?.stats.peak.value} posts. The technology subreddit shows the highest activity, 
-            followed by politics and science.
-          </Typography>
-        </Paper>
-      </Box>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Insights
+                </Typography>
+                
+                <Typography variant="body1" paragraph>
+                  Based on the time series analysis, we can observe:
+                </Typography>
+                
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Alert severity="info">
+                    Peak activity of {stats.peak.count.toLocaleString()} posts was recorded on{' '}
+                    {stats.peak.date}
+                  </Alert>
+                  
+                  <Alert severity={stats.trend.direction === 'up' ? 'success' : stats.trend.direction === 'down' ? 'warning' : 'info'}>
+                    Post volume shows a {stats.trend.direction}ward trend with a{' '}
+                    {Math.abs(stats.trend.percent_change).toFixed(1)}% {stats.trend.direction === 'up' ? 'increase' : stats.trend.direction === 'down' ? 'decrease' : 'change'}
+                  </Alert>
+                  
+                  <Alert severity="success">
+                    Average of {stats.average_posts.toLocaleString()} posts per {timeUnit}
+                  </Alert>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Paper>
     </Box>
   );
 } 
