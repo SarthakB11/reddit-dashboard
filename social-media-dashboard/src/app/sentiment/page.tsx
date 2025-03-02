@@ -527,25 +527,61 @@ export default function SentimentAnalysisPage() {
                           Sentiment Distribution
                         </Typography>
                         
-                        {/* Placeholder for sentiment distribution chart */}
-                        <Box 
-                          sx={{ 
-                            height: 200, 
-                            bgcolor: 'action.hover', 
-                            borderRadius: 1, 
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            mb: 2,
-                          }}
-                        >
-                          <Typography variant="body1" color="text.secondary">
-                            Sentiment Distribution Chart Placeholder
-                          </Typography>
+                        {/* Replace placeholder with actual sentiment distribution chart */}
+                        <Box sx={{ height: 200, mb: 2 }}>
+                          {loading ? (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                              <CircularProgress />
+                            </Box>
+                          ) : sentimentData ? (
+                            <Plot
+                              data={[
+                                {
+                                  values: [
+                                    sentimentData.overall.positive,
+                                    sentimentData.overall.neutral,
+                                    sentimentData.overall.negative
+                                  ],
+                                  labels: ['Positive', 'Neutral', 'Negative'],
+                                  type: 'pie',
+                                  hole: 0.4,
+                                  marker: {
+                                    colors: ['#4caf50', '#2196f3', '#f44336']
+                                  },
+                                  textinfo: 'label+percent',
+                                  textposition: 'outside',
+                                  automargin: true,
+                                  hoverinfo: 'label+percent+value',
+                                }
+                              ]}
+                              layout={{
+                                autosize: true,
+                                margin: { l: 0, r: 0, t: 0, b: 0 },
+                                showlegend: false,
+                                paper_bgcolor: 'transparent',
+                                plot_bgcolor: 'transparent',
+                              }}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%' }}
+                            />
+                          ) : (
+                            <Box sx={{ 
+                              height: '100%', 
+                              display: 'flex', 
+                              justifyContent: 'center', 
+                              alignItems: 'center',
+                              bgcolor: 'action.hover',
+                              borderRadius: 1,
+                            }}>
+                              <Typography variant="body1" color="text.secondary">
+                                No sentiment data available
+                              </Typography>
+                            </Box>
+                          )}
                         </Box>
                         
                         <Typography variant="body2" paragraph>
-                          The sentiment analysis shows a generally {sentimentData?.overall.score && sentimentData.overall.score > 0 ? 'positive' : sentimentData?.overall.score && sentimentData.overall.score < 0 ? 'negative' : 'neutral'} tone across analyzed content, with {sentimentData?.overall.positive}% positive, {sentimentData?.overall.neutral}% neutral, and {sentimentData?.overall.negative}% negative sentiment.
+                          The sentiment analysis shows a generally {sentimentData?.overall.score && sentimentData.overall.score > 0.05 ? 'positive' : sentimentData?.overall.score && sentimentData.overall.score < -0.05 ? 'negative' : 'neutral'} tone across analyzed content, with {sentimentData?.overall.positive}% positive, {sentimentData?.overall.neutral}% neutral, and {sentimentData?.overall.negative}% negative sentiment.
                         </Typography>
                       </CardContent>
                     </Card>
@@ -794,6 +830,95 @@ export default function SentimentAnalysisPage() {
                   )}
                 </Box>
                 
+                {/* Add sentiment score over time chart */}
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" gutterBottom>
+                    Sentiment Score Trend
+                  </Typography>
+                  
+                  <Box sx={{ height: 250 }}>
+                    {loading ? (
+                      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                        <CircularProgress />
+                      </Box>
+                    ) : sentimentData && sentimentData.timeData.length > 0 ? (
+                      <Plot
+                        data={[
+                          {
+                            x: sentimentData.timeData.map(d => d.date),
+                            y: sentimentData.timeData.map((d, i) => {
+                              // Calculate sentiment score from percentages
+                              return (d.positive - d.negative) / 100;
+                            }),
+                            type: 'scatter',
+                            mode: 'lines+markers',
+                            name: 'Sentiment Score',
+                            line: { 
+                              color: '#9c27b0',
+                              width: 3,
+                              shape: 'spline'
+                            },
+                            marker: { 
+                              color: '#9c27b0',
+                              size: 8,
+                              symbol: 'circle'
+                            },
+                          }
+                        ]}
+                        layout={{
+                          autosize: true,
+                          margin: { l: 50, r: 20, t: 10, b: 50 },
+                          xaxis: {
+                            title: 'Date',
+                            showgrid: false,
+                          },
+                          yaxis: {
+                            title: 'Sentiment Score (-1 to 1)',
+                            showgrid: true,
+                            gridcolor: '#f0f0f0',
+                            range: [-1, 1],
+                            zeroline: true,
+                            zerolinecolor: '#888',
+                            zerolinewidth: 1,
+                          },
+                          shapes: [
+                            {
+                              type: 'line',
+                              x0: sentimentData.timeData[0].date,
+                              y0: 0,
+                              x1: sentimentData.timeData[sentimentData.timeData.length - 1].date,
+                              y1: 0,
+                              line: {
+                                color: '#888',
+                                width: 1,
+                                dash: 'dot',
+                              }
+                            }
+                          ],
+                          paper_bgcolor: 'transparent',
+                          plot_bgcolor: 'transparent',
+                        }}
+                        useResizeHandler={true}
+                        style={{ width: '100%', height: '100%' }}
+                      />
+                    ) : (
+                      <Box sx={{ 
+                        height: '100%', 
+                        display: 'flex', 
+                        justifyContent: 'center', 
+                        alignItems: 'center',
+                        bgcolor: 'action.hover',
+                        borderRadius: 1,
+                      }}>
+                        <Typography variant="body1" color="text.secondary">
+                          <TimelineIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
+                          No sentiment data available
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+                
                 <Card sx={{ mt: 3 }}>
                   <CardContent>
                     <Typography variant="h6" gutterBottom>
@@ -956,6 +1081,77 @@ export default function SentimentAnalysisPage() {
                 </Box>
                 
                 <Grid container spacing={3}>
+                  <Grid item xs={12} mb={3}>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="h6" gutterBottom>
+                          Sentiment Heatmap
+                        </Typography>
+                        
+                        <Box sx={{ height: 300 }}>
+                          {loading ? (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                              <CircularProgress />
+                            </Box>
+                          ) : sentimentData && sentimentData.subreddits.length > 0 ? (
+                            <Plot
+                              data={[
+                                {
+                                  z: [
+                                    sentimentData.subreddits.map(sr => sr.positive),
+                                    sentimentData.subreddits.map(sr => sr.neutral),
+                                    sentimentData.subreddits.map(sr => sr.negative)
+                                  ],
+                                  x: sentimentData.subreddits.map(sr => `r/${sr.name}`),
+                                  y: ['Positive', 'Neutral', 'Negative'],
+                                  type: 'heatmap',
+                                  colorscale: [
+                                    [0, '#f8f9fa'],
+                                    [0.5, '#90caf9'],
+                                    [1, '#1976d2']
+                                  ],
+                                  showscale: true,
+                                  hovertemplate: 
+                                    '<b>%{y}</b> sentiment for <b>%{x}</b><br>' +
+                                    '%{z}%<extra></extra>',
+                                }
+                              ]}
+                              layout={{
+                                autosize: true,
+                                margin: { l: 100, r: 50, t: 30, b: 100 },
+                                xaxis: {
+                                  title: 'Subreddit',
+                                  tickangle: -45,
+                                },
+                                yaxis: {
+                                  title: 'Sentiment Category',
+                                },
+                                paper_bgcolor: 'transparent',
+                                plot_bgcolor: 'transparent',
+                              }}
+                              useResizeHandler={true}
+                              style={{ width: '100%', height: '100%' }}
+                            />
+                          ) : (
+                            <Box sx={{ 
+                              height: '100%', 
+                              display: 'flex', 
+                              justifyContent: 'center', 
+                              alignItems: 'center',
+                              bgcolor: 'action.hover',
+                              borderRadius: 1,
+                            }}>
+                              <Typography variant="body1" color="text.secondary">
+                                <ForumIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
+                                No subreddit data available
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  
                   {sentimentData?.subreddits.map(subreddit => (
                     <Grid item xs={12} sm={6} md={4} key={subreddit.name}>
                       <Card>
