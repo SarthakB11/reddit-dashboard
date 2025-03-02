@@ -950,15 +950,17 @@ function TopicModelingContent() {
                         <ListItemText 
                           primary={topic?.name} 
                           secondary={
-                            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                              <Typography variant="body2" component="span">
-                                Trend: 
-                              </Typography>
-                              {getTrendIcon(topic?.trend || 'flat')}
-                              <Typography variant="body2" component="span" sx={{ ml: 0.5 }}>
-                                {topic?.percentChange! > 0 ? '+' : ''}{topic?.percentChange}%
-                              </Typography>
-                            </Box>
+                            <Typography variant="body2" component="div">
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                <Typography variant="body2" component="span">
+                                  Trend: 
+                                </Typography>
+                                {getTrendIcon(topic?.trend || 'flat')}
+                                <Typography variant="body2" component="span" sx={{ ml: 0.5 }}>
+                                  {topic?.percentChange! > 0 ? '+' : ''}{topic?.percentChange}%
+                                </Typography>
+                              </Box>
+                            </Typography>
                           } 
                         />
                       </ListItem>
@@ -979,9 +981,9 @@ function TopicModelingContent() {
                     {getTopTopicsForSubreddit(selectedSubreddit)
                       .flatMap(topic => topic?.words || [])
                       .slice(0, 15)
-                      .map(word => (
+                      .map((word, index) => (
                         <Chip 
-                          key={word.word}
+                          key={`${word.word}-${index}`}
                           label={word.word}
                           variant="outlined"
                           size="small"
@@ -1042,7 +1044,7 @@ function TopicModelingContent() {
             </Box>
           )}
           
-          {topicData ? (
+          {topicData && (
             <Typography variant="body1">
               The topic modeling reveals that {topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.name || 'Technology'} is the most discussed topic across the analyzed subreddits,
               accounting for approximately {topicData.timeData.length > 0 ? 
@@ -1063,10 +1065,6 @@ function TopicModelingContent() {
                 }%, possibly reflecting seasonal variations or changing interests.`
               ) : ''}
             </Typography>
-          ) : (
-            <Typography variant="body1">
-              Loading insights...
-            </Typography>
           )}
           
           {/* Add a word cloud visualization for the top topic */}
@@ -1076,14 +1074,14 @@ function TopicModelingContent() {
                 Word Cloud for Top Topic: {topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.name}
               </Typography>
               
-              {topicData && (
+              {isClient && topicData && (
                 <Plot
                   data={[{
                     type: 'scatter',
                     mode: 'text',
                     text: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map(w => w.word) || [],
-                    x: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map((_, i) => Math.random()) || [],
-                    y: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map((_, i) => Math.random()) || [],
+                    x: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map((w, i) => Math.random() * (i + 0.5) * 0.2) || [],
+                    y: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map((w, i) => Math.random() * (i + 0.5) * 0.2) || [],
                     textfont: {
                       size: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map(w => w.weight * 40 + 10) || [],
                       color: topicData.topics.sort((a, b) => b.postCount - a.postCount)[0]?.words.map(w => 
@@ -1097,22 +1095,14 @@ function TopicModelingContent() {
                   }]}
                   layout={{
                     showlegend: false,
-                    margin: { l: 10, r: 10, t: 10, b: 10 },
-                    xaxis: {
-                      showgrid: false,
-                      zeroline: false,
-                      showticklabels: false
-                    },
-                    yaxis: {
-                      showgrid: false,
-                      zeroline: false,
-                      showticklabels: false
-                    },
-                    paper_bgcolor: 'transparent',
-                    plot_bgcolor: 'transparent',
+                    hovermode: 'closest',
+                    margin: { t: 0, r: 0, b: 0, l: 0 },
+                    xaxis: { showgrid: false, zeroline: false, showticklabels: false },
+                    yaxis: { showgrid: false, zeroline: false, showticklabels: false },
+                    width: 800,
+                    height: 200,
                   }}
-                  useResizeHandler={true}
-                  style={{ width: '100%', height: '100%' }}
+                  config={{ displayModeBar: false }}
                 />
               )}
             </Box>
