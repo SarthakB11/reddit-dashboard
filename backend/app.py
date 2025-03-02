@@ -98,6 +98,34 @@ def clean_text(text):
     
     return text
 
+# Extended stopwords list for topic modeling
+def get_extended_stopwords():
+    """Get an extended list of stopwords for better topic modeling."""
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    
+    # Common words that don't add meaning to topics
+    additional_stopwords = {
+        'like', 'just', 'people', 'think', 'know', 'get', 'really', 'would', 'one', 'time',
+        'good', 'make', 'going', 'got', 'want', 'see', 'way', 'thing', 'things', 'much',
+        'lot', 'even', 'actually', 'said', 'say', 'go', 'well', 'still', 'right', 'use',
+        'used', 'using', 'look', 'looking', 'looks', 'looked', 'come', 'comes', 'coming',
+        'came', 'take', 'takes', 'taking', 'took', 'need', 'needs', 'needed', 'needing',
+        'something', 'someone', 'anything', 'anyone', 'everything', 'everyone', 'nothing',
+        'nobody', 'somewhere', 'anywhere', 'everywhere', 'nowhere', 'ever', 'never',
+        'always', 'sometimes', 'often', 'rarely', 'seldom', 'usually', 'normally',
+        'generally', 'typically', 'basically', 'essentially', 'actually', 'literally',
+        'seriously', 'honestly', 'truly', 'really', 'definitely', 'absolutely', 'certainly',
+        'probably', 'possibly', 'maybe', 'perhaps', 'likely', 'unlikely', 'sure', 'yeah',
+        'yes', 'no', 'nope', 'yep', 'ok', 'okay', 'alright', 'hi', 'hello', 'hey', 'bye',
+        'goodbye', 'reddit', 'post', 'comment', 'thread', 'subreddit', 'edit', 'deleted',
+        'removed', 'upvote', 'downvote', 'karma', 'gold', 'silver', 'platinum', 'award',
+        'tldr', 'tl', 'dr', 'op', 'oc', 'repost', 'xpost', 'crosspost', 'mod', 'mods',
+        'moderator', 'moderators', 'admin', 'admins', 'administrator', 'administrators'
+    }
+    
+    # Combine with sklearn's stopwords and return as a list
+    return list(set(ENGLISH_STOP_WORDS).union(additional_stopwords))
+
 # API Routes
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -764,53 +792,134 @@ def get_topic_modeling():
         
         # Import scikit-learn libraries
         from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-        from sklearn.decomposition import LatentDirichletAllocation
+        from sklearn.decomposition import LatentDirichletAllocation, NMF
         import numpy as np
         from collections import Counter, defaultdict
         import pandas as pd
+        import nltk
+        from nltk.corpus import wordnet
         
-        # Create a TF-IDF vectorizer
+        # Download NLTK resources if needed
+        try:
+            nltk.data.find('corpora/wordnet')
+        except LookupError:
+            nltk.download('wordnet', quiet=True)
+        
+        # Get extended stopwords as a list
+        extended_stopwords = get_extended_stopwords()
+        
+        # Create a TF-IDF vectorizer with extended stopwords
         tfidf_vectorizer = TfidfVectorizer(
-            max_df=0.95,  # Ignore terms that appear in more than 95% of documents
-            min_df=2,     # Ignore terms that appear in less than 2 documents
-            stop_words='english',
-            ngram_range=(1, 2)  # Consider both unigrams and bigrams
-        )
-        
-        # Create a Count vectorizer for LDA
-        count_vectorizer = CountVectorizer(
-            max_df=0.95,
-            min_df=2,
-            stop_words='english'
+            max_df=0.85,  # Ignore terms that appear in more than 85% of documents
+            min_df=5,     # Ignore terms that appear in less than 5 documents
+            stop_words=extended_stopwords,  # Now a list, not a set
+            ngram_range=(1, 3),  # Consider unigrams, bigrams, and trigrams
+            max_features=10000   # Limit to top 10,000 features
         )
         
         # Transform the texts to TF-IDF features
         tfidf = tfidf_vectorizer.fit_transform(texts)
         
-        # Transform the texts to count features for LDA
-        count_features = count_vectorizer.fit_transform(texts)
+        # Get feature names for TF-IDF
+        tfidf_feature_names = tfidf_vectorizer.get_feature_names_out()
         
-        # Get feature names
-        feature_names = count_vectorizer.get_feature_names_out()
+        # Try NMF first (often produces more coherent topics)
+        try:
+            # Non-negative Matrix Factorization for topic modeling
+            nmf = NMF(
+                n_components=num_topics,
+                random_state=42,
+                max_iter=200,
+                init='nndsvd',
+                solver='cd',
+                beta_loss='frobenius',
+                tol=1e-4
+            )
+            
+            # Fit the NMF model
+            nmf.fit(tfidf)
+            
+            # Get document-topic distributions
+            doc_topic_dist = nmf.transform(tfidf)
+            
+            # Use NMF components
+            components = nmf.components_
+            feature_names = tfidf_feature_names
+            model_name = "NMF"
+            
+        except Exception as e:
+            logger.warning(f"NMF failed, falling back to LDA: {str(e)}")
+            
+            # Create a Count vectorizer for LDA with extended stopwords
+            count_vectorizer = CountVectorizer(
+                max_df=0.85,
+                min_df=5,
+                stop_words=extended_stopwords,  # Now a list, not a set
+                ngram_range=(1, 2),
+                max_features=10000
+            )
+            
+            # Transform the texts to count features for LDA
+            count_features = count_vectorizer.fit_transform(texts)
+            
+            # Get feature names for Count Vectorizer
+            feature_names = count_vectorizer.get_feature_names_out()
+            
+            # Perform LDA with more iterations for better convergence
+            lda = LatentDirichletAllocation(
+                n_components=num_topics,
+                random_state=42,
+                learning_method='online',
+                max_iter=50,
+                learning_offset=50.0,
+                doc_topic_prior=0.1,
+                topic_word_prior=0.01
+            )
+            
+            # Fit the LDA model
+            lda.fit(count_features)
+            
+            # Get document-topic distributions
+            doc_topic_dist = lda.transform(count_features)
+            
+            # Use LDA components
+            components = lda.components_
+            model_name = "LDA"
         
-        # Perform LDA
-        lda = LatentDirichletAllocation(
-            n_components=num_topics,
-            random_state=42,
-            learning_method='online',
-            max_iter=10
-        )
+        # Function to check if a word is a noun using WordNet
+        def is_noun(word):
+            synsets = wordnet.synsets(word)
+            return any(s.pos() == 'n' for s in synsets) if synsets else False
         
-        # Fit the model
-        lda.fit(count_features)
-        
-        # Get document-topic distributions
-        doc_topic_dist = lda.transform(count_features)
-        
-        # Function to generate a topic name based on top words
-        def generate_topic_name(top_words):
-            # Simple approach: use the top 2 words
-            if len(top_words) >= 2:
+        # Function to generate a more meaningful topic name
+        def generate_topic_name(top_words, topic_idx):
+            # Filter for nouns and meaningful words (longer than 3 chars)
+            meaningful_words = [w for w in top_words if len(w['word']) > 3 and is_noun(w['word'])]
+            
+            # If we have meaningful nouns, prioritize them
+            if len(meaningful_words) >= 2:
+                # Try to find a good pair of words that make sense together
+                bigrams = []
+                for i, word1 in enumerate(meaningful_words[:5]):
+                    for word2 in meaningful_words[i+1:5]:
+                        # Check if these words appear together in any of the texts
+                        bigram = f"{word1['word']} {word2['word']}"
+                        reverse_bigram = f"{word2['word']} {word1['word']}"
+                        
+                        count = sum(1 for text in texts if bigram in text or reverse_bigram in text)
+                        if count > 0:
+                            bigrams.append((word1['word'], word2['word'], count))
+                
+                # If we found bigrams, use the most common one
+                if bigrams:
+                    bigrams.sort(key=lambda x: x[2], reverse=True)
+                    return f"{bigrams[0][0].capitalize()} & {bigrams[0][1].capitalize()}"
+                
+                # Otherwise use the top two meaningful words
+                return f"{meaningful_words[0]['word'].capitalize()} & {meaningful_words[1]['word'].capitalize()}"
+            
+            # If we don't have enough meaningful nouns, fall back to top words
+            elif len(top_words) >= 2:
                 return f"{top_words[0]['word'].capitalize()} & {top_words[1]['word'].capitalize()}"
             elif len(top_words) == 1:
                 return top_words[0]['word'].capitalize()
@@ -819,9 +928,9 @@ def get_topic_modeling():
         
         # Create topics with their top words
         topics = []
-        for topic_idx, topic in enumerate(lda.components_):
+        for topic_idx, topic in enumerate(components):
             # Get the top words for this topic
-            top_word_indices = topic.argsort()[:-11:-1]  # Get indices of top 10 words
+            top_word_indices = topic.argsort()[:-21:-1]  # Get indices of top 20 words
             top_words = [
                 {"word": feature_names[i], "weight": float(topic[i] / sum(topic))}
                 for i in top_word_indices
@@ -831,7 +940,7 @@ def get_topic_modeling():
             topic_doc_count = sum(1 for doc_topics in doc_topic_dist if np.argmax(doc_topics) == topic_idx)
             
             # Generate a name for the topic based on top words
-            topic_name = generate_topic_name(top_words)
+            topic_name = generate_topic_name(top_words, topic_idx)
             
             # Calculate trend (comparing first half to second half of time period)
             if len(texts) > 10:
@@ -855,7 +964,8 @@ def get_topic_modeling():
             topics.append({
                 "id": topic_idx + 1,
                 "name": topic_name,
-                "words": top_words,
+                "modelType": model_name,
+                "words": top_words[:10],  # Only include top 10 words in response
                 "postCount": int(topic_doc_count),
                 "trend": trend,
                 "percentChange": round(percent_change, 1)
