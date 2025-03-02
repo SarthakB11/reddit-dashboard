@@ -36,6 +36,10 @@ import CloudOffIcon from '@mui/icons-material/CloudOff';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import WarningIcon from '@mui/icons-material/Warning';
 import SearchIcon from '@mui/icons-material/Search';
+import dynamic from 'next/dynamic';
+
+// Add this after other imports
+const Plot = dynamic(() => import('react-plotly.js'), { ssr: false }) as any;
 
 // Define interfaces for topic modeling data
 interface TopicWord {
@@ -674,107 +678,146 @@ function TopicModelingContent() {
           </Box>
         </Box>
         
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <Box>
-            {/* Placeholder for topic distribution visualization */}
-            <Box 
-              sx={{ 
-                height: 300, 
-                bgcolor: 'action.hover', 
-                borderRadius: 1, 
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mb: 3,
+        <Box sx={{ height: 400, mb: 3 }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <CircularProgress />
+            </Box>
+          ) : topicData && topicData.topics && topicData.topics.length > 0 ? (
+            <Plot
+              data={[
+                {
+                  type: 'treemap',
+                  labels: topicData.topics.map(topic => topic.name),
+                  parents: Array(topicData.topics.length).fill(''),
+                  values: topicData.topics.map(topic => topic.postCount),
+                  textinfo: 'label+value',
+                  textposition: 'middle center',
+                  textfont: { size: 14, color: 'white' },
+                  marker: {
+                    colors: topicData.topics.map((topic, i) => `hsl(${(i * 360 / topicData.topics.length) % 360}, 70%, 50%)`),
+                    line: { width: 2, color: 'white' }
+                  },
+                  hovertemplate: `
+                    <b>%{label}</b><br>
+                    Posts: %{value}<br>
+                    Trend: %{customdata[0]}<br>
+                    Change: %{customdata[1]}%
+                    <extra></extra>
+                  `,
+                  customdata: topicData.topics.map(topic => [topic.trend, topic.percentChange])
+                }
+              ]}
+              layout={{
+                autosize: true,
+                margin: { l: 0, r: 0, t: 10, b: 0 },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { family: 'Roboto, sans-serif' }
               }}
-            >
+              useResizeHandler={true}
+              style={{ width: '100%', height: '100%' }}
+              config={{ responsive: true, displayModeBar: false }}
+            />
+          ) : (
+            <Box sx={{ 
+              height: '100%', 
+              display: 'flex', 
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'action.hover',
+              borderRadius: 1,
+            }}>
               <Typography variant="body1" color="text.secondary">
                 <BubbleChartIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
-                Topic Distribution Visualization Placeholder
+                No topic data available
               </Typography>
             </Box>
-            
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Top Topics
-                    </Typography>
-                    
-                    <Divider sx={{ mb: 2 }} />
-                    
-                    {topicData?.topics
-                      .sort((a, b) => b.postCount - a.postCount)
-                      .slice(0, 5)
-                      .map((topic, index) => (
-                        <Box key={topic.id} sx={{ mb: 1.5, display: 'flex', alignItems: 'center' }}>
-                          <TagIcon sx={{ mr: 1, color: `hsl(${topic.id * 40}, 70%, 50%)` }} />
-                          
-                          <Typography variant="body1" sx={{ minWidth: 120 }}>
-                            {topic.name}
-                          </Typography>
-                          
-                          <Box sx={{ flexGrow: 1, mx: 2 }}>
-                            <Box 
-                              sx={{ 
-                                height: 8, 
-                                bgcolor: `hsl(${topic.id * 40}, 70%, 50%)`,
-                                width: `${(topic.postCount / topicData.topics[0].postCount) * 100}%`,
-                                borderRadius: 1,
-                              }} 
-                            />
-                          </Box>
-                          
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            {getTrendIcon(topic.trend)}
-                            <Typography variant="body2" sx={{ ml: 0.5 }}>
-                              {topic.percentChange > 0 ? '+' : ''}{topic.percentChange}%
-                            </Typography>
-                          </Box>
-                        </Box>
-                      ))}
-                  </CardContent>
-                </Card>
-              </Grid>
-              
-              <Grid item xs={12} md={6}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      Topic Trends Over Time
-                    </Typography>
-                    
-                    {/* Placeholder for topic trends chart */}
-                    <Box 
-                      sx={{ 
-                        height: 200, 
-                        bgcolor: 'action.hover', 
-                        borderRadius: 1, 
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        mb: 2,
-                      }}
-                    >
-                      <Typography variant="body1" color="text.secondary">
-                        Topic Trends Chart Placeholder
-                      </Typography>
-                    </Box>
-                    
-                    <Typography variant="body2" paragraph>
-                      The chart shows how topic distribution has changed over time. Technology and Health topics show the strongest growth trends.
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
-          </Box>
-        )}
+          )}
+        </Box>
+        
+        <Box sx={{ height: 300, mb: 2 }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+              <CircularProgress />
+            </Box>
+          ) : topicData && topicData.timeData && topicData.timeData.length > 0 && topicData.topics && topicData.topics.length > 0 ? (
+            <Plot
+              data={topicData.topics.map((topic, i) => ({
+                x: topicData.timeData.map(d => d.date),
+                y: topicData.timeData.map(d => 
+                  d.topicDistribution.find(t => t.topicId === topic.id)?.percentage || 0
+                ),
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: topic.name,
+                line: { 
+                  color: `hsl(${(i * 360 / topicData.topics.length) % 360}, 70%, 50%)`,
+                  width: 2,
+                  shape: 'spline'
+                },
+                marker: {
+                  size: 8,
+                  color: `hsl(${(i * 360 / topicData.topics.length) % 360}, 70%, 50%)`,
+                  line: { width: 1, color: 'white' }
+                },
+                hovertemplate: `
+                  <b>${topic.name}</b><br>
+                  Date: %{x}<br>
+                  Percentage: %{y}%
+                  <extra></extra>
+                `
+              }))}
+              layout={{
+                autosize: true,
+                margin: { l: 50, r: 20, t: 20, b: 50 },
+                xaxis: {
+                  title: 'Date',
+                  showgrid: false,
+                  tickfont: { size: 12 }
+                },
+                yaxis: {
+                  title: 'Topic Distribution (%)',
+                  showgrid: true,
+                  gridcolor: 'rgba(240,240,240,0.5)',
+                  tickfont: { size: 12 },
+                  range: [0, Math.max(
+                    100,
+                    ...topicData.timeData.flatMap(d => 
+                      d.topicDistribution.map(t => t.percentage)
+                    )
+                  ) * 1.1]
+                },
+                showlegend: true,
+                legend: {
+                  orientation: 'h',
+                  y: -0.2,
+                  font: { size: 10 }
+                },
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { family: 'Roboto, sans-serif' },
+                hovermode: 'closest'
+              }}
+              useResizeHandler={true}
+              style={{ width: '100%', height: '100%' }}
+              config={{ responsive: true, displayModeBar: false }}
+            />
+          ) : (
+            <Box sx={{ 
+              height: '100%', 
+              display: 'flex', 
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'action.hover',
+              borderRadius: 1,
+            }}>
+              <Typography variant="body1" color="text.secondary">
+                No trend data available
+              </Typography>
+            </Box>
+          )}
+        </Box>
       </Paper>
       
       {!loading && selectedTopic && (
@@ -921,33 +964,91 @@ function TopicModelingContent() {
           </Typography>
           
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Chip 
-              icon={<TagIcon />} 
-              label="Technology is the dominant topic" 
-              color="primary" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<TrendingUpIcon />} 
-              label="Health topics growing fastest" 
-              color="success" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<TrendingDownIcon />} 
-              label="Sports topics declining" 
-              color="error" 
-              variant="outlined" 
-            />
+            {topicData && topicData.topics && topicData.topics.length > 0 && (
+              <>
+                {(() => {
+                  // Safely get topics with null checks
+                  const dominantTopic = [...topicData.topics].sort((a, b) => b.postCount - a.postCount)[0];
+                  const fastestGrowingTopic = [...topicData.topics].sort((a, b) => b.percentChange - a.percentChange)[0];
+                  const decliningTopic = [...topicData.topics].find(t => t.percentChange < 0);
+                  
+                  return (
+                    <>
+                      {dominantTopic && (
+                        <Chip 
+                          icon={<TagIcon />} 
+                          label={`${dominantTopic.name} is the dominant topic`}
+                          color="primary" 
+                          variant="outlined" 
+                        />
+                      )}
+                      {fastestGrowingTopic && (
+                        <Chip 
+                          icon={<TrendingUpIcon />} 
+                          label={`${fastestGrowingTopic.name} growing fastest`}
+                          color="success" 
+                          variant="outlined" 
+                        />
+                      )}
+                      {decliningTopic && (
+                        <Chip 
+                          icon={<TrendingDownIcon />} 
+                          label={`${decliningTopic.name} declining`}
+                          color="error" 
+                          variant="outlined" 
+                        />
+                      )}
+                    </>
+                  );
+                })()}
+              </>
+            )}
           </Box>
           
           <Typography variant="body1">
-            The topic modeling reveals that Technology is the most discussed topic across the analyzed subreddits,
-            accounting for approximately {topicData?.timeData[topicData.timeData.length - 1].topicDistribution.find(t => t.topicId === 1)?.percentage}% of all content.
-            Health-related topics show the strongest growth at +{topicData?.topics.find(t => t.id === 6)?.percentChange}%,
-            likely due to increased interest in wellness and healthcare.
-            Sports topics have seen a decline of {topicData?.topics.find(t => t.id === 5)?.percentChange}%,
-            possibly reflecting seasonal variations in sporting events.
+            {topicData && topicData.topics && topicData.topics.length > 0 && topicData.timeData && topicData.timeData.length > 0 ? (
+              <>
+                {(() => {
+                  // Safely get topics with null checks
+                  const dominantTopic = [...topicData.topics].sort((a, b) => b.postCount - a.postCount)[0];
+                  const fastestGrowingTopic = [...topicData.topics].sort((a, b) => b.percentChange - a.percentChange)[0];
+                  const decliningTopic = [...topicData.topics].find(t => t.percentChange < 0);
+                  
+                  const latestTimeData = topicData.timeData[topicData.timeData.length - 1];
+                  const dominantTopicPercentage = latestTimeData?.topicDistribution.find(
+                    t => dominantTopic && t.topicId === dominantTopic.id
+                  )?.percentage;
+                  
+                  return (
+                    <>
+                      {dominantTopic && (
+                        <>
+                          {dominantTopic.name} is the most discussed topic across the analyzed subreddits
+                          {dominantTopicPercentage ? `, accounting for approximately ${dominantTopicPercentage}% of all content` : ''}.
+                        </>
+                      )}
+                      {' '}
+                      {fastestGrowingTopic && (
+                        <>
+                          {fastestGrowingTopic.name}-related topics show the strongest growth at +{fastestGrowingTopic.percentChange}%
+                          {fastestGrowingTopic.name === 'Health' ? 
+                            ', likely due to increased interest in wellness and healthcare' :
+                            ', showing significant community interest in this area'
+                          }.
+                        </>
+                      )}
+                      {' '}
+                      {decliningTopic ? 
+                        `${decliningTopic.name} topics have seen a decline of ${decliningTopic.percentChange}%, possibly reflecting changing interests or seasonal variations.` :
+                        'All topics are showing positive or stable trends, indicating broad engagement across subjects.'
+                      }
+                    </>
+                  );
+                })()}
+              </>
+            ) : (
+              'No topic modeling data available for analysis.'
+            )}
           </Typography>
         </Paper>
       </Box>
