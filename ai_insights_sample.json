@@ -1,0 +1,86 @@
+{
+  "summary": "Analysis of 993 Reddit posts containing 'politics' from 2024-07-23 to 2025-02-18.\n\nTop subreddits in these results:\n- r/politics: 993 posts (100.0%)\n- r/worldpolitics: 89 posts (9.0%)\n- r/PoliticalDiscussion: 53 posts (5.3%)\n- r/Conservative: 48 posts (4.8%)\n- r/Liberal: 43 posts (4.3%)\n\nThe overall sentiment of these posts appears to be mixed, with a slight negative bias.\n\nEngagement metrics:\n- Total score (upvotes minus downvotes): 89,437\n- Total comments: 42,156\n- Average score per post: 90.1\n- Average comments per post: 42.5\n\nKey observations:\n- This is a highly discussed topic with 993 posts.\n- Posts on this topic generate significant discussion with an average of 42.5 comments per post.\n- Content on this topic is well-received by the community with an average score of 90.1 per post.\n- The most active day was 2025-02-14 with 127 posts.\n- Political discussions show distinct partisan divisions, with clear separation between conservative and liberal viewpoints.\n- Election-related content saw the highest engagement, peaking in early February 2025.\n- International political events, particularly related to conflicts, generated cross-posting across multiple political subreddits.\n- There was a significant increase in posting activity starting in November 2024, with activity nearly doubling month-over-month.\n- Policy discussions around climate change, healthcare, and economic issues received the most substantive comments.",
+  "total_posts": 993,
+  "date_range": {
+    "start": "2024-07-23",
+    "end": "2025-02-18"
+  },
+  "sentiment": "mixed",
+  "top_subreddits": [
+    {
+      "name": "politics",
+      "count": 993
+    },
+    {
+      "name": "worldpolitics",
+      "count": 89
+    },
+    {
+      "name": "PoliticalDiscussion",
+      "count": 53
+    },
+    {
+      "name": "Conservative",
+      "count": 48
+    },
+    {
+      "name": "Liberal",
+      "count": 43
+    }
+  ],
+  "topics": [
+    {
+      "name": "Elections",
+      "keywords": ["vote", "election", "campaign", "candidate", "ballot"],
+      "post_count": 287,
+      "sentiment": "neutral"
+    },
+    {
+      "name": "International Relations",
+      "keywords": ["war", "treaty", "diplomatic", "foreign", "alliance"],
+      "post_count": 215,
+      "sentiment": "negative"
+    },
+    {
+      "name": "Domestic Policy",
+      "keywords": ["healthcare", "economy", "tax", "education", "reform"],
+      "post_count": 183,
+      "sentiment": "mixed"
+    },
+    {
+      "name": "Political Parties",
+      "keywords": ["democrat", "republican", "party", "progressive", "conservative"],
+      "post_count": 176,
+      "sentiment": "polarized"
+    },
+    {
+      "name": "Environmental Issues",
+      "keywords": ["climate", "environmental", "green", "fossil", "regulation"],
+      "post_count": 132,
+      "sentiment": "concerned"
+    }
+  ],
+  "time_trends": {
+    "peak_period": "2025-02-12 to 2025-02-18",
+    "growth_rate": "143% increase from previous month",
+    "most_active_times": "Weekday evenings and weekend mornings",
+    "seasonal_patterns": "Higher activity during election cycles and legislative sessions"
+  },
+  "engagement_patterns": {
+    "most_engaging_content": "Breaking political news and first-hand accounts",
+    "controversial_topics": ["Electoral reform", "Immigration policy", "Foreign interventions"],
+    "user_participation": "7% of users contribute 52% of all content"
+  },
+  "content_quality": {
+    "source_diversity": "Medium - dominated by mainstream news outlets",
+    "factual_accuracy": "Variable - 68% of posts include verifiable claims",
+    "echo_chamber_index": "High (0.73) - significant ideological clustering"
+  },
+  "recommendations": [
+    "Focus on policy discussions rather than partisan politics for higher-quality engagement",
+    "Utilize cross-posting to diverse political communities to reduce echo chamber effects",
+    "Consider timing posts during peak activity periods (weekday evenings) for maximum visibility",
+    "Include verified sources and data to improve reception across political spectrums",
+    "Frame contentious topics as questions rather than statements to encourage discussion"
+  ]
+} 
