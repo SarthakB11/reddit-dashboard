@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -24,6 +24,20 @@ import HubIcon from '@mui/icons-material/Hub';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ForumIcon from '@mui/icons-material/Forum';
 import BubbleChartIcon from '@mui/icons-material/BubbleChart';
+import WarningIcon from '@mui/icons-material/Warning';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import CloudOffIcon from '@mui/icons-material/CloudOff';
+import dynamic from 'next/dynamic';
+
+// Dynamically import ForceGraph to avoid SSR issues
+const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
+  ssr: false,
+  loading: () => (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
+      <CircularProgress />
+    </Box>
+  )
+});
 
 // Define interfaces for network data
 interface NetworkNode {
@@ -143,28 +157,316 @@ const generateMockNetworkData = (): NetworkData => {
   };
 };
 
+// Add NetworkGraph component
+interface NetworkNodeExtended extends NetworkNode {
+  val?: number;
+  color?: string;
+  x?: number;
+  y?: number;
+}
+
+interface ForceGraphData {
+  nodes: NetworkNodeExtended[];
+  links: NetworkLink[];
+}
+
+// Custom component to display API connection status
+const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+  let icon = null;
+  let text = '';
+  let color = '';
+  let bgColor = '';
+
+  switch (status) {
+    case 'connected':
+      icon = <CheckCircleIcon fontSize="small" />;
+      text = 'API Connected';
+      color = 'success.main';
+      bgColor = 'success.light';
+      break;
+    case 'disconnected':
+      icon = <CloudOffIcon fontSize="small" />;
+      text = 'API Disconnected';
+      color = 'error.main';
+      bgColor = 'error.light';
+      break;
+    case 'loading':
+      icon = <CircularProgress size={16} />;
+      text = 'Checking API...';
+      color = 'info.main';
+      bgColor = 'info.light';
+      break;
+  }
+
+  return (
+    <Chip
+      icon={icon}
+      label={text}
+      sx={{ 
+        color,
+        bgcolor: bgColor,
+        fontWeight: status === 'disconnected' ? 'bold' : 'normal',
+        '& .MuiChip-icon': { color }
+      }}
+      size="small"
+    />
+  );
+};
+
+// Enhance NetworkGraph component to improve visualization
+const NetworkGraph = ({ data, viewMode }: { data: NetworkData, viewMode: '2d' | '3d' }) => {
+  const graphRef = useRef<any>(null);
+  const [graphData, setGraphData] = useState<ForceGraphData>({ nodes: [], links: [] });
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  useEffect(() => {
+    if (data) {
+      // Transform data for visualization with improved styling
+      const transformedData: ForceGraphData = {
+        nodes: data.nodes.map(node => ({
+          ...node,
+          // Adjust node size based on post count for better visualization
+          val: Math.max(3, Math.sqrt(node.posts || 1) * 1.5), 
+          // Different colors for subreddits vs authors with opacity based on connections
+          color: node.type === 'subreddit' 
+            ? `rgba(255, 99, 71, ${Math.min(0.7 + (node.connections / Math.max(...data.nodes.map(n => n.connections)) * 0.3), 1)})`  // Tomato red with dynamic opacity
+            : `rgba(70, 130, 180, ${Math.min(0.7 + (node.connections / Math.max(...data.nodes.map(n => n.connections)) * 0.3), 1)})` // Steel blue with dynamic opacity
+        })),
+        links: data.links.map(link => ({
+          ...link,
+          // Dynamic link coloring based on value
+          color: `rgba(150, 150, 150, ${Math.min(0.2 + (link.value / Math.max(...data.links.map(l => l.value)) * 0.8), 0.8)})`
+        }))
+      };
+      setGraphData(transformedData);
+      
+      // Reset zoom when data changes
+      if (graphRef.current) {
+        setTimeout(() => {
+          graphRef.current.zoomToFit(400, 50); // Add more padding
+        }, 500);
+      }
+    }
+  }, [data]);
+
+  const handleNodeClick = (node: NetworkNodeExtended) => {
+    if (graphRef.current && node.x !== undefined && node.y !== undefined) {
+      // Zoom in on the clicked node
+      graphRef.current.centerAt(node.x, node.y, 1000);
+      graphRef.current.zoom(4, 1000);
+    }
+  };
+  
+  // Return early if not mounted (client-side only rendering)
+  if (!mounted) {
+    return (
+      <Box sx={{ 
+        height: 500, 
+        width: '100%', 
+        border: '1px solid #eee', 
+        borderRadius: 1, 
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        bgcolor: 'background.paper'
+      }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  
+  return (
+    <Box sx={{ 
+      height: 500, 
+      width: '100%', 
+      border: '1px solid #eee', 
+      borderRadius: 1, 
+      overflow: 'hidden',
+      bgcolor: 'transparent' // Transparent to work with light/dark themes
+    }}>
+      <ForceGraph2D
+        ref={graphRef}
+        graphData={graphData}
+        nodeLabel={(node) => {
+          const n = node as NetworkNodeExtended;
+          return `${n.name} (${n.type})\nPosts: ${n.posts}\nConnections: ${n.connections}\nConnection Rank: ${
+            data.nodes.sort((a, b) => b.connections - a.connections)
+              .findIndex(item => item.id === n.id) + 1
+          }`;
+        }}
+        linkLabel={(link) => {
+          const l = link as NetworkLink;
+          const sourceNode = data.nodes.find(n => n.id === l.source);
+          const targetNode = data.nodes.find(n => n.id === l.target);
+          return `${sourceNode?.name || l.source} → ${targetNode?.name || l.target}\nWeight: ${l.value}\nStrength Rank: ${
+            data.links.sort((a, b) => b.value - a.value)
+              .findIndex(item => item.source === l.source && item.target === l.target) + 1
+          }`;
+        }}
+        nodeRelSize={6}
+        linkWidth={(link) => Math.sqrt(Math.max(1, (link as NetworkLink).value) * 0.2)}
+        linkDirectionalParticles={5} // More particles for better visualization
+        linkDirectionalParticleSpeed={(link) => Math.min(0.01, 0.001 + 0.01 * (link as NetworkLink).value / Math.max(...data.links.map(l => l.value)))} // Dynamic speed based on link value
+        linkDirectionalParticleWidth={(link) => Math.sqrt(Math.max(1, (link as NetworkLink).value) * 0.2)}
+        nodeCanvasObjectMode={() => 'after'}
+        nodeCanvasObject={(node, ctx, globalScale) => {
+          // Add text labels for important nodes (top 3 by connections)
+          const n = node as NetworkNodeExtended;
+          const rank = data.nodes.sort((a, b) => b.connections - a.connections)
+              .findIndex(item => item.id === n.id) + 1;
+              
+          if (rank <= 3) { // Only add labels to top 3 nodes
+            const label = n.name;
+            const fontSize = 12/globalScale;
+            ctx.font = `${fontSize}px Sans-Serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(
+              n.x! - ctx.measureText(label).width/2 - 2,
+              n.y! - fontSize/2 - 2,
+              ctx.measureText(label).width + 4,
+              fontSize + 4
+            );
+            ctx.fillStyle = n.type === 'subreddit' ? 'darkred' : 'darkblue';
+            ctx.fillText(label, n.x!, n.y!);
+          }
+        }}
+        onNodeClick={handleNodeClick}
+        cooldownTicks={100}
+        d3AlphaDecay={0.015} // Improved for better stabilization
+        d3VelocityDecay={0.25} // Improved for better movement
+        width={800}
+        height={500}
+        backgroundColor="rgba(0,0,0,0)" // Transparent background to match theme
+      />
+    </Box>
+  );
+};
+
 export default function NetworkAnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [networkData, setNetworkData] = useState<NetworkData | null>(null);
   const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [filterMode, setFilterMode] = useState<'all' | 'subreddit' | 'author'>('all');
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState<string>('');
+  const [networkType, setNetworkType] = useState<'subreddit' | 'author'>('subreddit');
+  const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
+  const [usingSampleData, setUsingSampleData] = useState(false);
   
+  // Check API connection on initial load
   useEffect(() => {
-    // Simulate API call with timeout
-    const fetchData = async () => {
-      setLoading(true);
-      
-      // Simulate network delay
-      setTimeout(() => {
-        const data = generateMockNetworkData();
-        setNetworkData(data);
-        setLoading(false);
-      }, 1500);
+    const checkApiConnection = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) });
+        if (response.ok) {
+          if (apiStatus !== 'connected') {
+            setApiStatus('connected');
+            // If we were using sample data and API is now available, refresh data
+            if (usingSampleData) {
+              fetchNetworkData(networkType, keyword);
+            }
+          }
+        } else {
+          setApiStatus('disconnected');
+        }
+      } catch (err) {
+        setApiStatus('disconnected');
+      }
     };
     
-    fetchData();
-  }, []);
+    // Initial check
+    checkApiConnection();
+    
+    // Check every 30 seconds
+    const interval = setInterval(checkApiConnection, 30000);
+    
+    return () => clearInterval(interval);
+  }, [apiStatus, networkType, keyword, usingSampleData]);
+  
+  const fetchNetworkData = async (type: 'subreddit' | 'author', searchKeyword: string = '') => {
+    setLoading(true);
+    setError(null);
+    setUsingSampleData(false);
+    
+    try {
+      // First check if API is available
+      const healthCheck = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) })
+        .then(res => res.ok)
+        .catch(() => false);
+        
+      if (!healthCheck) {
+        setApiStatus('disconnected');
+        throw new Error('API server is not available');
+      }
+      
+      // Try to get data from the API
+      const apiUrl = new URL('http://localhost:5000/api/network');
+      apiUrl.searchParams.append('type', type);
+      if (searchKeyword) {
+        apiUrl.searchParams.append('keyword', searchKeyword);
+      }
+      // Remove limit from frontend to use backend default
+      
+      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
+      
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.nodes || data.nodes.length === 0) {
+        setError(`No network data found for ${type === 'subreddit' ? 'subreddits' : 'authors'}${searchKeyword ? ` matching "${searchKeyword}"` : ''}.`);
+        // Fall back to sample data with empty results message
+        const mockData = generateMockNetworkData();
+        setNetworkData(mockData);
+        setUsingSampleData(true);
+      } else {
+        // Success - set API connection status and use actual data
+        setApiStatus('connected');
+        
+        // If metrics are missing, calculate them
+        if (!data.metrics) {
+          const nodeCount = data.nodes.length;
+          const linkCount = data.links.length;
+          const totalPossibleConnections = nodeCount * (nodeCount - 1) / 2;
+          const density = totalPossibleConnections > 0 ? linkCount / totalPossibleConnections : 0;
+          const avgConnections = data.nodes.reduce((sum: number, node: any) => sum + (node.connections || 0), 0) / nodeCount;
+          
+          data.metrics = {
+            density: Math.round(density * 100) / 100,
+            modularity: 0.65, // Placeholder
+            communities: Math.max(1, Math.round(linkCount / 10)), // Simple heuristic
+            avgConnections: Math.round(avgConnections * 10) / 10
+          };
+        }
+        
+        setNetworkData(data);
+      }
+    } catch (err: any) {
+      console.error('Error fetching network data:', err);
+      setError(`Failed to load network data from API: ${err.message}. Using sample data instead.`);
+      setApiStatus('disconnected');
+      
+      // Fallback to mock data in case of API error
+      const mockData = generateMockNetworkData();
+      setNetworkData(mockData);
+      setUsingSampleData(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    fetchNetworkData(networkType, keyword);
+  }, [networkType, keyword]);
   
   const handleViewModeChange = (mode: '2d' | '3d') => {
     setViewMode(mode);
@@ -177,6 +479,18 @@ export default function NetworkAnalysisPage() {
   
   const handleNodeSelect = (event: SelectChangeEvent) => {
     setSelectedNode(event.target.value);
+  };
+  
+  const handleNetworkTypeChange = (event: SelectChangeEvent) => {
+    setNetworkType(event.target.value as 'subreddit' | 'author');
+  };
+  
+  const handleKeywordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setKeyword(event.target.value);
+  };
+  
+  const handleSearch = () => {
+    fetchNetworkData(networkType, keyword);
   };
   
   // Filter nodes based on selected mode and node
@@ -235,13 +549,102 @@ export default function NetworkAnalysisPage() {
   
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
-      <Typography variant="h4" component="h1" gutterBottom>
-        Network Analysis
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" component="h1" gutterBottom>
+          Network Analysis
+        </Typography>
+        <ApiStatus status={apiStatus} />
+      </Box>
       
       <Typography variant="body1" paragraph color="text.secondary">
         Explore the connections between subreddits and authors to understand information flow and community structures.
+        {usingSampleData && (
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', ml: 1 }}>
+            <Chip 
+              icon={<WarningIcon />} 
+              label="Using sample data" 
+              color="warning" 
+              variant="outlined" 
+              size="small"
+              sx={{ fontWeight: 'medium' }}
+            />
+            {apiStatus === 'connected' && (
+              <Button 
+                size="small" 
+                variant="text" 
+                color="primary" 
+                onClick={() => fetchNetworkData(networkType, keyword)}
+                startIcon={<CheckCircleIcon fontSize="small" />}
+                sx={{ ml: 1 }}
+              >
+                Try again with real data
+              </Button>
+            )}
+          </Box>
+        )}
       </Typography>
+      
+      <Paper sx={{ p: 3, mb: 4 }}>
+        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 2, alignItems: 'flex-end' }}>
+          <FormControl sx={{ minWidth: 200 }}>
+            <InputLabel id="network-type-label">Network Type</InputLabel>
+            <Select
+              labelId="network-type-label"
+              value={networkType}
+              label="Network Type"
+              onChange={handleNetworkTypeChange}
+            >
+              <MenuItem value="subreddit">Subreddit Network</MenuItem>
+              <MenuItem value="author">Author Network</MenuItem>
+            </Select>
+          </FormControl>
+          
+          <TextField
+            label="Search Keyword"
+            variant="outlined"
+            value={keyword}
+            onChange={handleKeywordChange}
+            sx={{ flexGrow: 1 }}
+            placeholder={`Search in ${networkType === 'subreddit' ? 'subreddit' : 'author'} network...`}
+            InputProps={{
+              endAdornment: keyword ? (
+                <Button 
+                  size="small" 
+                  variant="text" 
+                  onClick={() => setKeyword('')}
+                  sx={{ minWidth: 'auto' }}
+                >
+                  Clear
+                </Button>
+              ) : null
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleSearch();
+              }
+            }}
+          />
+          
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={handleSearch}
+            startIcon={<BubbleChartIcon />}
+            disabled={loading}
+          >
+            {loading ? 'Searching...' : 'Search'}
+          </Button>
+        </Box>
+      </Paper>
+      
+      {error && (
+        <Paper sx={{ p: 2, mb: 4, bgcolor: 'error.light' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <WarningIcon color="error" sx={{ mr: 1 }} />
+            <Typography color="error.dark">{error}</Typography>
+          </Box>
+        </Paper>
+      )}
       
       <Paper sx={{ p: 3, mb: 4 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -253,15 +656,9 @@ export default function NetworkAnalysisPage() {
             <ButtonGroup variant="outlined" size="small">
               <Button 
                 onClick={() => handleViewModeChange('2d')}
-                variant={viewMode === '2d' ? 'contained' : 'outlined'}
+                variant="contained"
               >
                 2D View
-              </Button>
-              <Button 
-                onClick={() => handleViewModeChange('3d')}
-                variant={viewMode === '3d' ? 'contained' : 'outlined'}
-              >
-                3D View
               </Button>
             </ButtonGroup>
             
@@ -305,30 +702,14 @@ export default function NetworkAnalysisPage() {
         </Box>
         
         {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 10 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
             <CircularProgress />
           </Box>
-        ) : (
-          <Box>
-            {/* Placeholder for network graph - in a real app, you would use a graph library */}
-            <Box 
-              sx={{ 
-                height: 400, 
-                bgcolor: 'action.hover', 
-                borderRadius: 1, 
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                mb: 3,
-              }}
-            >
-              <Typography variant="body1" color="text.secondary">
-                <BubbleChartIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
-                Network Graph Placeholder ({viewMode} view)
-              </Typography>
-            </Box>
+        ) : filteredData ? (
+          <>
+            <NetworkGraph data={filteredData} viewMode={viewMode} />
             
-            <Grid container spacing={3}>
+            <Grid container spacing={3} sx={{ mt: 2 }}>
               <Grid item xs={12} md={6}>
                 <Card>
                   <CardContent>
@@ -342,7 +723,7 @@ export default function NetworkAnalysisPage() {
                           Network Density
                         </Typography>
                         <Typography variant="h5">
-                          {networkData?.metrics.density.toFixed(2)}
+                          {filteredData?.metrics.density.toFixed(2)}
                         </Typography>
                       </Grid>
                       
@@ -351,7 +732,7 @@ export default function NetworkAnalysisPage() {
                           Modularity
                         </Typography>
                         <Typography variant="h5">
-                          {networkData?.metrics.modularity.toFixed(2)}
+                          {filteredData?.metrics.modularity.toFixed(2)}
                         </Typography>
                       </Grid>
                       
@@ -360,7 +741,7 @@ export default function NetworkAnalysisPage() {
                           Communities Detected
                         </Typography>
                         <Typography variant="h5">
-                          {networkData?.metrics.communities}
+                          {filteredData?.metrics.communities}
                         </Typography>
                       </Grid>
                       
@@ -369,7 +750,7 @@ export default function NetworkAnalysisPage() {
                           Avg. Connections
                         </Typography>
                         <Typography variant="h5">
-                          {networkData?.metrics.avgConnections.toFixed(1)}
+                          {filteredData?.metrics.avgConnections.toFixed(1)}
                         </Typography>
                       </Grid>
                     </Grid>
@@ -386,10 +767,10 @@ export default function NetworkAnalysisPage() {
                     
                     <Divider sx={{ mb: 2 }} />
                     
-                    {networkData?.nodes
+                    {filteredData?.nodes
                       .sort((a, b) => b.connections - a.connections)
                       .slice(0, 5)
-                      .map((node, index) => (
+                      .map((node) => (
                         <Box key={node.id} sx={{ mb: 1.5, display: 'flex', alignItems: 'center' }}>
                           {node.type === 'subreddit' ? (
                             <ForumIcon sx={{ mr: 1, color: 'primary.main' }} />
@@ -406,7 +787,8 @@ export default function NetworkAnalysisPage() {
                               sx={{ 
                                 height: 8, 
                                 bgcolor: node.type === 'subreddit' ? 'primary.main' : 'secondary.main',
-                                width: `${(node.connections / networkData.nodes[0].connections) * 100}%`,
+                                width: `${(node.connections * 20)}%`,
+                                maxWidth: '100%',
                                 borderRadius: 1,
                               }} 
                             />
@@ -421,6 +803,21 @@ export default function NetworkAnalysisPage() {
                 </Card>
               </Grid>
             </Grid>
+          </>
+        ) : (
+          <Box sx={{ 
+            height: 400, 
+            bgcolor: 'action.hover', 
+            borderRadius: 1, 
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            mb: 3,
+          }}>
+            <Typography variant="body1" color="text.secondary">
+              <BubbleChartIcon sx={{ fontSize: 40, opacity: 0.7, mr: 1 }} />
+              No data available
+            </Typography>
           </Box>
         )}
       </Paper>
@@ -436,31 +833,102 @@ export default function NetworkAnalysisPage() {
           </Typography>
           
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-            <Chip 
-              icon={<HubIcon />} 
-              label="3 distinct communities detected" 
-              color="primary" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<ForumIcon />} 
-              label="r/technology is the most connected subreddit" 
-              color="secondary" 
-              variant="outlined" 
-            />
-            <Chip 
-              icon={<AccountCircleIcon />} 
-              label="user5 is a potential influencer" 
-              color="success" 
-              variant="outlined" 
-            />
+            {networkData && (
+              <>
+                <Chip 
+                  icon={<HubIcon />} 
+                  label={`${networkData.metrics.communities} ${networkData.metrics.communities === 1 ? 'community' : 'communities'} detected`} 
+                  color="primary" 
+                  variant="outlined" 
+                />
+                
+                {networkData.nodes.length > 0 && (
+                  <>
+                    {/* Most connected node */}
+                    {(() => {
+                      const topNode = [...networkData.nodes].sort((a, b) => b.connections - a.connections)[0];
+                      return (
+                        <Chip 
+                          icon={topNode.type === 'subreddit' ? <ForumIcon /> : <AccountCircleIcon />} 
+                          label={`${topNode.name} is the most connected ${topNode.type}`} 
+                          color="secondary" 
+                          variant="outlined" 
+                        />
+                      );
+                    })()}
+                    
+                    {/* Node with most posts */}
+                    {(() => {
+                      const topPostNode = [...networkData.nodes].sort((a, b) => b.posts - a.posts)[0];
+                      return (
+                        <Chip 
+                          icon={topPostNode.type === 'subreddit' ? <ForumIcon /> : <AccountCircleIcon />} 
+                          label={`${topPostNode.name} has the most posts (${topPostNode.posts})`} 
+                          color="success" 
+                          variant="outlined" 
+                        />
+                      );
+                    })()}
+                  </>
+                )}
+              </>
+            )}
           </Box>
           
           <Typography variant="body1">
-            The network analysis reveals a moderately connected network with a density of {networkData?.metrics.density.toFixed(2)}.
-            We've identified {networkData?.metrics.communities} distinct communities, with technology-focused subreddits forming
-            the largest cluster. User5 appears to be a key connector between technology and science communities,
-            suggesting they may be an influencer or bridge between these topics.
+            {networkData ? (
+              <>
+                The network analysis reveals a {
+                  networkData.metrics.density < 0.3 ? 'sparsely' : 
+                  networkData.metrics.density < 0.6 ? 'moderately' : 'densely'
+                } connected network with a density of {networkData.metrics.density.toFixed(2)}.
+                
+                {networkData.metrics.communities > 0 && (
+                  <> We've identified {networkData.metrics.communities} distinct {networkData.metrics.communities === 1 ? 'community' : 'communities'}. </>
+                )}
+                
+                {networkData.nodes.length > 0 && networkData.links.length > 0 && (() => {
+                  // Find most connected nodes by type
+                  const topSubreddits = networkData.nodes
+                    .filter(node => node.type === 'subreddit')
+                    .sort((a, b) => b.connections - a.connections);
+                    
+                  const topAuthors = networkData.nodes
+                    .filter(node => node.type === 'author')
+                    .sort((a, b) => b.connections - a.connections);
+                  
+                  // Find strongest connection
+                  const strongestLink = [...networkData.links].sort((a, b) => b.value - a.value)[0];
+                  const sourceNode = networkData.nodes.find(n => n.id === strongestLink?.source);
+                  const targetNode = networkData.nodes.find(n => n.id === strongestLink?.target);
+                  
+                  return (
+                    <>
+                      {topSubreddits.length > 0 && (
+                        <> 
+                          {topSubreddits[0].name} is the most connected subreddit with {topSubreddits[0].connections} connections
+                          {topSubreddits.length > 1 ? `, followed by ${topSubreddits[1].name}` : ''}.
+                        </>
+                      )}
+                      
+                      {topAuthors.length > 0 && (
+                        <> 
+                          {' '}{topAuthors[0].name} appears to be a key contributor with {topAuthors[0].connections} connections
+                          {topAuthors[0].posts > 0 ? ` and ${topAuthors[0].posts} posts` : ''}.
+                        </>
+                      )}
+                      
+                      {sourceNode && targetNode && (
+                        <>
+                          {' '}The strongest connection is between {sourceNode.name} and {targetNode.name} 
+                          with a connection strength of {strongestLink.value}.
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
+              </>
+            ) : 'No network data available for analysis.'}
           </Typography>
         </Paper>
       </Box>

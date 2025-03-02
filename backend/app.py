@@ -326,7 +326,7 @@ def get_network_data():
     try:
         network_type = request.args.get('type', 'subreddit')  # subreddit or author
         keyword = request.args.get('keyword', '')
-        limit = int(request.args.get('limit', 50))
+        limit = int(request.args.get('limit', 8000))  # Increased default limit to 1000 to effectively remove practical limits
         
         if network_type not in ['subreddit', 'author']:
             return jsonify({"error": "Invalid network type. Use 'subreddit' or 'author'"}), 400
@@ -355,6 +355,20 @@ def get_network_data():
             """
             
             subreddits = con.execute(query_nodes, params).fetchall()
+            
+            # If no results, return empty data
+            if not subreddits:
+                return jsonify({
+                    "nodes": [],
+                    "links": [],
+                    "metrics": {
+                        "density": 0,
+                        "modularity": 0,
+                        "communities": 0,
+                        "avgConnections": 0
+                    }
+                })
+            
             subreddit_list = [row[0] for row in subreddits]
             
             # Create a placeholder string for the IN clause
@@ -380,8 +394,26 @@ def get_network_data():
             connections = con.execute(query_edges, edge_params).fetchall()
             
             # Format the results
-            nodes = [{"id": row[0], "name": row[0], "value": row[1]} for row in subreddits]
+            nodes = [{"id": row[0], "name": row[0], "type": "subreddit", "value": row[1], "posts": row[1], "connections": 0} for row in subreddits]
             edges = [{"source": row[0], "target": row[1], "value": row[2]} for row in connections]
+            
+            # Count connections for each node
+            connection_counts = {}
+            for edge in edges:
+                source = edge["source"]
+                target = edge["target"]
+                if source not in connection_counts:
+                    connection_counts[source] = 0
+                if target not in connection_counts:
+                    connection_counts[target] = 0
+                connection_counts[source] += 1
+                connection_counts[target] += 1
+            
+            # Update connection counts in nodes
+            for node in nodes:
+                node_id = node["id"]
+                if node_id in connection_counts:
+                    node["connections"] = connection_counts[node_id]
             
         else:  # author network
             # Get top authors for the graph
@@ -397,6 +429,20 @@ def get_network_data():
             """
             
             authors = con.execute(query_nodes, params).fetchall()
+            
+            # If no results, return empty data
+            if not authors:
+                return jsonify({
+                    "nodes": [],
+                    "links": [],
+                    "metrics": {
+                        "density": 0,
+                        "modularity": 0,
+                        "communities": 0,
+                        "avgConnections": 0
+                    }
+                })
+            
             author_list = [row[0] for row in authors]
             
             # Create a placeholder string for the IN clause
@@ -420,12 +466,48 @@ def get_network_data():
             connections = con.execute(query_edges, edge_params).fetchall()
             
             # Format the results
-            nodes = [{"id": row[0], "name": row[0], "value": row[1]} for row in authors]
+            nodes = [{"id": row[0], "name": row[0], "type": "author", "value": row[1], "posts": row[1], "connections": 0} for row in authors]
             edges = [{"source": row[0], "target": row[1], "value": row[2]} for row in connections]
+            
+            # Count connections for each node
+            connection_counts = {}
+            for edge in edges:
+                source = edge["source"]
+                target = edge["target"]
+                if source not in connection_counts:
+                    connection_counts[source] = 0
+                if target not in connection_counts:
+                    connection_counts[target] = 0
+                connection_counts[source] += 1
+                connection_counts[target] += 1
+            
+            # Update connection counts in nodes
+            for node in nodes:
+                node_id = node["id"]
+                if node_id in connection_counts:
+                    node["connections"] = connection_counts[node_id]
+        
+        # Calculate network metrics
+        total_possible_connections = len(nodes) * (len(nodes) - 1) / 2
+        density = len(edges) / total_possible_connections if total_possible_connections > 0 else 0
+        
+        # Simple estimate for modularity and communities
+        # In a real app, you would use a community detection algorithm
+        avg_connections = sum(node["connections"] for node in nodes) / len(nodes) if nodes else 0
+        communities = max(1, len(edges) // 10)  # Simple heuristic
+        modularity = 0.65  # Placeholder value
+        
+        metrics = {
+            "density": round(density, 2),
+            "modularity": modularity,
+            "communities": communities,
+            "avgConnections": round(avg_connections, 1)
+        }
         
         return jsonify({
             "nodes": nodes,
-            "links": edges
+            "links": edges,
+            "metrics": metrics
         })
         
     except Exception as e:
