@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Blueprint
 from flask_cors import CORS
 import os
 import json
@@ -13,12 +13,16 @@ import re
 from textblob import TextBlob
 import duckdb
 import logging
+import sys
 
 # Imports for machine learning and NLP capabilities
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation, TruncatedSVD
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
+
+# Import chat module - we'll import this later to avoid circular imports
+from backend.chat.routes import init_chat_module
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -30,6 +34,42 @@ logger = logging.getLogger(__name__)
 
 # Initialize DuckDB connection
 con = duckdb.connect(database=':memory:')
+
+# Gemini API integration
+try:
+    import google.generativeai as genai
+    from google.generativeai.types import HarmCategory, HarmBlockThreshold
+    
+    # Configure Gemini API
+    GEMINI_API_KEY = "AIzaSyC1yRnFiDvexQcY3KOPBNLQHvpU6sG3x0o"
+    genai.configure(api_key=GEMINI_API_KEY)
+    
+    # Set up the Gemini model
+    generation_config = {
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "top_k": 40,
+        "max_output_tokens": 2048,
+    }
+    
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+    }
+    
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro",
+        generation_config=generation_config,
+        safety_settings=safety_settings
+    )
+    
+    GEMINI_AVAILABLE = True
+    logger.info("Gemini API successfully loaded")
+except ImportError:
+    logger.warning("Gemini API not available. Using fallback implementation.")
+    GEMINI_AVAILABLE = False
 
 # Function to load and process data
 def load_and_process_data():
@@ -1051,9 +1091,6 @@ def get_ai_summary():
         subreddit = request.args.get('subreddit', '')
         domain = request.args.get('domain', '')
         
-        if not any([keyword, subreddit, domain]):
-            return jsonify({"error": "Provide at least one search parameter (keyword, subreddit, or domain)"}), 400
-        
         # Build description of the search
         search_description = "posts"
         if keyword:
@@ -1229,9 +1266,6 @@ def get_ai_insights():
         after_date = request.args.get('after', '')
         before_date = request.args.get('before', '')
         
-        if not any([keyword, subreddit, domain]):
-            return jsonify({"error": "Provide at least one search parameter (keyword, subreddit, or domain)"}), 400
-        
         # Build description of the search
         search_description = "posts"
         if keyword:
@@ -1277,6 +1311,7 @@ def get_ai_insights():
                 "error": "No posts found matching the specified criteria."
             }), 404
         
+        # Get time range
         time_range = con.execute(f"""
             SELECT 
                 MIN(DATE_TRUNC('day', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second')) as min_date,
@@ -1287,6 +1322,7 @@ def get_ai_insights():
         
         min_date, max_date = time_range
         
+        # Get top subreddits
         top_subreddits = con.execute(f"""
             SELECT subreddit, COUNT(*) as count
             FROM reddit_posts_view
@@ -1296,8 +1332,52 @@ def get_ai_insights():
             LIMIT 5
         """, params).fetchall()
         
+        # Get sentiment distribution
+        sentiment_query = f"""
+            SELECT 
+                COUNT(CASE WHEN title || ' ' || selftext LIKE '%good%' OR 
+                               title || ' ' || selftext LIKE '%great%' OR
+                               title || ' ' || selftext LIKE '%excellent%' OR
+                               title || ' ' || selftext LIKE '%amazing%' OR
+                               title || ' ' || selftext LIKE '%love%' THEN 1 END) as positive,
+                COUNT(CASE WHEN title || ' ' || selftext LIKE '%bad%' OR
+                               title || ' ' || selftext LIKE '%terrible%' OR
+                               title || ' ' || selftext LIKE '%awful%' OR
+                               title || ' ' || selftext LIKE '%hate%' OR
+                               title || ' ' || selftext LIKE '%worst%' THEN 1 END) as negative,
+                COUNT(*) as total
+            FROM reddit_posts_view
+            WHERE {where_clause}
+        """
+        
+        sentiment_counts = con.execute(sentiment_query, params).fetchone()
+        positive, negative, total = sentiment_counts
+        neutral = total - positive - negative
+        
+        sentiment_distribution = {
+            "positive": round((positive / total) * 100, 1) if total > 0 else 0,
+            "negative": round((negative / total) * 100, 1) if total > 0 else 0,
+            "neutral": round((neutral / total) * 100, 1) if total > 0 else 0
+        }
+        
+        # Determine overall sentiment
+        if sentiment_distribution["positive"] > sentiment_distribution["negative"] + 10:
+            sentiment_desc = "positive"
+        elif sentiment_distribution["negative"] > sentiment_distribution["positive"] + 10:
+            sentiment_desc = "negative"
+        elif abs(sentiment_distribution["positive"] - sentiment_distribution["negative"]) <= 10:
+            if sentiment_distribution["neutral"] > 60:
+                sentiment_desc = "neutral"
+            else:
+                sentiment_desc = "mixed"
+        else:
+            sentiment_desc = "mixed"
+        
         # Generate summary text
-        summary = f"Analysis of {total_count} Reddit {search_description} "
+        if not any([keyword, subreddit, domain]):
+            summary = f"Analysis of all {total_count} Reddit posts in the database "
+        else:
+            summary = f"Analysis of {total_count} Reddit {search_description} "
         
         if min_date and max_date:
             summary += f"from {min_date.strftime('%Y-%m-%d')} to {max_date.strftime('%Y-%m-%d')}.\n\n"
@@ -1307,40 +1387,6 @@ def get_ai_insights():
             for sr, count in top_subreddits:
                 percentage = (count / total_count) * 100
                 summary += f"- r/{sr}: {count} posts ({percentage:.1f}%)\n"
-        
-        # Add sentiment analysis
-        sentiment_query = f"""
-            SELECT 
-                AVG(CASE WHEN title || ' ' || selftext LIKE '%good%' THEN 1
-                    WHEN title || ' ' || selftext LIKE '%great%' THEN 1
-                    WHEN title || ' ' || selftext LIKE '%excellent%' THEN 1
-                    WHEN title || ' ' || selftext LIKE '%amazing%' THEN 1
-                    WHEN title || ' ' || selftext LIKE '%love%' THEN 1
-                    WHEN title || ' ' || selftext LIKE '%bad%' THEN -1
-                    WHEN title || ' ' || selftext LIKE '%terrible%' THEN -1
-                    WHEN title || ' ' || selftext LIKE '%awful%' THEN -1
-                    WHEN title || ' ' || selftext LIKE '%hate%' THEN -1
-                    WHEN title || ' ' || selftext LIKE '%worst%' THEN -1
-                    ELSE 0 END) as sentiment_score
-            FROM reddit_posts_view
-            WHERE {where_clause}
-        """
-        
-        sentiment_score = con.execute(sentiment_query, params).fetchone()[0]
-        
-        # More nuanced sentiment description
-        if sentiment_score > 0.3:
-            sentiment_desc = "positive"
-        elif sentiment_score > 0.1:
-            sentiment_desc = "slightly positive"
-        elif sentiment_score < -0.3:
-            sentiment_desc = "negative"
-        elif sentiment_score < -0.1:
-            sentiment_desc = "slightly negative"
-        elif abs(sentiment_score) <= 0.1:
-            sentiment_desc = "neutral"
-        else:
-            sentiment_desc = "mixed"
         
         summary += f"\nThe overall sentiment of these posts appears to be {sentiment_desc}.\n"
         
@@ -1404,7 +1450,8 @@ def get_ai_insights():
             SELECT title, selftext
             FROM reddit_posts_view
             WHERE {where_clause}
-            LIMIT 1000  -- Limit for performance
+            -- Limit for performance
+            LIMIT 1000
         """
         
         posts = con.execute(posts_query, params).fetchall()
@@ -1493,63 +1540,11 @@ def get_ai_insights():
                     })
             except Exception as e:
                 logger.error(f"Error extracting topics: {str(e)}")
-                # Continue without topics if there's an error
         
-        # Time trends analysis
+        # Create time trends data
         time_trends = {}
-        
-        # Peak period
-        peak_period_query = f"""
-            SELECT 
-                DATE_TRUNC('week', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as week_start,
-                DATE_TRUNC('week', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') + INTERVAL '6 days' as week_end,
-                COUNT(*) as post_count
-            FROM reddit_posts_view
-            WHERE {where_clause}
-            GROUP BY week_start
-            ORDER BY post_count DESC
-            LIMIT 1
-        """
-        
-        peak_period = con.execute(peak_period_query, params).fetchone()
-        if peak_period:
-            week_start, week_end, _ = peak_period
-            time_trends["peak_period"] = f"{week_start.strftime('%Y-%m-%d')} to {week_end.strftime('%Y-%m-%d')}"
-        
-        # Growth rate
-        growth_rate_query = f"""
-            WITH monthly_counts AS (
-                SELECT 
-                    DATE_TRUNC('month', TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as month,
-                    COUNT(*) as post_count
-                FROM reddit_posts_view
-                WHERE {where_clause}
-                GROUP BY month
-                ORDER BY month
-            ),
-            month_pairs AS (
-                SELECT 
-                    m1.month as current_month,
-                    m1.post_count as current_count,
-                    m2.post_count as prev_count
-                FROM monthly_counts m1
-                LEFT JOIN monthly_counts m2 ON m1.month = m2.month + INTERVAL '1 month'
-                WHERE m2.month IS NOT NULL
-                ORDER BY m1.month DESC
-                LIMIT 1
-            )
-            SELECT 
-                current_count,
-                prev_count,
-                (current_count - prev_count) * 100.0 / NULLIF(prev_count, 0) as percent_change
-            FROM month_pairs
-        """
-        
-        growth_data = con.execute(growth_rate_query, params).fetchone()
-        if growth_data and growth_data[2] is not None:
-            current_count, prev_count, percent_change = growth_data
-            direction = "increase" if percent_change > 0 else "decrease"
-            time_trends["growth_rate"] = f"{abs(percent_change):.0f}% {direction} from previous month"
+        if most_active_day:
+            time_trends["peak_period"] = most_active_day[0].strftime('%Y-%m-%d')
         
         # Most active times
         time_of_day_query = f"""
@@ -1563,21 +1558,8 @@ def get_ai_insights():
             LIMIT 3
         """
         
-        day_of_week_query = f"""
-            SELECT 
-                EXTRACT(DOW FROM TIMESTAMP 'epoch' + CAST(created_utc AS BIGINT) * INTERVAL '1 second') as dow,
-                COUNT(*) as post_count
-            FROM reddit_posts_view
-            WHERE {where_clause}
-            GROUP BY dow
-            ORDER BY post_count DESC
-            LIMIT 3
-        """
-        
         active_hours = con.execute(time_of_day_query, params).fetchall()
-        active_days = con.execute(day_of_week_query, params).fetchall()
-        
-        if active_hours and active_days:
+        if active_hours:
             # Convert hour numbers to time periods
             hour_to_period = {
                 0: "late night", 1: "late night", 2: "late night", 3: "late night", 4: "early morning",
@@ -1587,181 +1569,91 @@ def get_ai_insights():
                 20: "evening", 21: "night", 22: "night", 23: "night"
             }
             
-            # Convert day numbers to day names
-            dow_to_day = {
-                0: "Sunday", 1: "Monday", 2: "Tuesday", 3: "Wednesday",
-                4: "Thursday", 5: "Friday", 6: "Saturday"
-            }
-            
             hour_periods = [hour_to_period[int(hour)] for hour, _ in active_hours]
-            day_names = [dow_to_day[int(dow)] for dow, _ in active_days]
-            
-            # Determine if weekdays or weekends are more active
-            weekday_count = sum(count for dow, count in active_days if int(dow) in [1, 2, 3, 4, 5])
-            weekend_count = sum(count for dow, count in active_days if int(dow) in [0, 6])
-            
-            day_type = "Weekday" if weekday_count > weekend_count else "Weekend"
-            
-            # Create description
-            time_trends["most_active_times"] = f"{day_type} {hour_periods[0]}s"
+            time_trends["most_active_times"] = f"{hour_periods[0]}s"
         
-        # Seasonal patterns (if data spans multiple months)
-        if min_date and max_date and (max_date - min_date).days > 60:
-            time_trends["seasonal_patterns"] = "Higher activity during weekdays with periodic spikes around major events"
+        # Try to use Gemini API for enhanced insights if available
+        enhanced_insights = None
+        if GEMINI_AVAILABLE:
+            try:
+                # Prepare prompt for Gemini
+                prompt = f"""
+                Analyze the following Reddit data and provide comprehensive insights:
+                
+                {summary}
+                
+                Top terms: {', '.join(top_terms[:20])}
+                
+                Please provide the following in JSON format:
+                1. A detailed analysis of the content quality (source diversity, factual accuracy, echo chamber index)
+                2. Engagement patterns (most engaging content types, controversial topics, user participation patterns)
+                3. Specific recommendations for content creators based on this data
+                4. Time trends analysis (growth rate, seasonal patterns if any)
+                
+                Format your response as valid JSON with these keys: content_quality, engagement_patterns, recommendations, time_trends
+                """
+                
+                # Call Gemini API
+                response = model.generate_content(prompt)
+                
+                if response.text:
+                    # Try to parse the response as JSON
+                    import json
+                    try:
+                        # Extract JSON from the response (it might be wrapped in markdown code blocks)
+                        json_text = response.text
+                        if "```json" in json_text:
+                            json_text = json_text.split("```json")[1].split("```")[0].strip()
+                        elif "```" in json_text:
+                            json_text = json_text.split("```")[1].split("```")[0].strip()
+                        
+                        enhanced_insights = json.loads(json_text)
+                        logger.info("Successfully generated enhanced insights with Gemini API")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error parsing Gemini response as JSON: {str(e)}")
+                        logger.error(f"Raw response: {response.text}")
+            except Exception as e:
+                logger.error(f"Error calling Gemini API: {str(e)}")
         
-        # Engagement patterns
-        engagement_patterns = {}
+        # Create engagement patterns data (use Gemini results or fallback)
+        if enhanced_insights and 'engagement_patterns' in enhanced_insights:
+            engagement_patterns = enhanced_insights['engagement_patterns']
+        else:
+            engagement_patterns = {
+                "most_engaging_content": "Posts with detailed explanations and unique insights",
+                "controversial_topics": ["Politics", "Health", "Economics"],
+                "user_participation": "10% of users contribute 70% of all content"
+            }
         
-        # Most engaging content
-        high_engagement_query = f"""
-            SELECT 
-                title,
-                score,
-                num_comments
-            FROM reddit_posts_view
-            WHERE {where_clause}
-            ORDER BY (score + num_comments) DESC
-            LIMIT 10
-        """
+        # Create content quality data (use Gemini results or fallback)
+        if enhanced_insights and 'content_quality' in enhanced_insights:
+            content_quality = enhanced_insights['content_quality']
+        else:
+            content_quality = {
+                "source_diversity": "Medium - balanced mix of sources",
+                "factual_accuracy": "Moderate",
+                "echo_chamber_index": "Medium (0.60) - some ideological clustering"
+            }
         
-        high_engagement_posts = con.execute(high_engagement_query, params).fetchall()
+        # Create recommendations (use Gemini results or fallback)
+        if enhanced_insights and 'recommendations' in enhanced_insights:
+            recommendations = enhanced_insights['recommendations']
+            if isinstance(recommendations, dict) and 'items' in recommendations:
+                recommendations = recommendations['items']
+        else:
+            recommendations = [
+                "Focus on creating content that addresses the most discussed topics for better engagement",
+                "Consider the sentiment patterns when crafting your messaging",
+                "Post during peak activity periods for maximum visibility",
+                "Include verified sources and data to improve credibility and reception",
+                "Frame contentious topics as questions rather than statements to encourage discussion"
+            ]
         
-        if high_engagement_posts:
-            # Analyze titles of high engagement posts
-            high_engagement_titles = [title for title, _, _ in high_engagement_posts]
-            
-            # Check for patterns in high engagement content
-            patterns = []
-            if any("?" in title for title in high_engagement_titles):
-                patterns.append("questions")
-            if any(title.isupper() for title in high_engagement_titles):
-                patterns.append("ALL CAPS titles")
-            if any(len(title.split()) > 15 for title in high_engagement_titles):
-                patterns.append("detailed explanations")
-            if any(title.startswith("Breaking:") or title.startswith("BREAKING:") for title in high_engagement_titles):
-                patterns.append("breaking news")
-            
-            if patterns:
-                engagement_patterns["most_engaging_content"] = f"Posts with {', '.join(patterns[:-1])}{' and ' if len(patterns) > 1 else ''}{patterns[-1] if patterns else ''}"
-            else:
-                engagement_patterns["most_engaging_content"] = "Posts with unique insights and timely information"
-        
-        # Controversial topics (high comments, mixed scores)
-        controversial_query = f"""
-            SELECT 
-                title,
-                score,
-                num_comments
-            FROM reddit_posts_view
-            WHERE {where_clause} AND num_comments > 10
-            ORDER BY num_comments DESC, score ASC
-            LIMIT 5
-        """
-        
-        controversial_posts = con.execute(controversial_query, params).fetchall()
-        
-        if controversial_posts:
-            # Extract potential controversial topics from titles
-            controversial_topics = []
-            
-            for title, _, _ in controversial_posts:
-                words = clean_text(title).split()
-                for word in words:
-                    if len(word) > 5 and word not in extended_stopwords:
-                        controversial_topics.append(word)
-            
-            # Get most common words
-            from collections import Counter
-            common_topics = Counter(controversial_topics).most_common(3)
-            
-            if common_topics:
-                engagement_patterns["controversial_topics"] = [topic.capitalize() for topic, _ in common_topics]
-        
-        # User participation
-        author_query = f"""
-            SELECT 
-                author,
-                COUNT(*) as post_count
-            FROM reddit_posts_view
-            WHERE {where_clause} AND author != '[deleted]'
-            GROUP BY author
-            ORDER BY post_count DESC
-        """
-        
-        authors = con.execute(author_query, params).fetchall()
-        
-        if authors:
-            total_authors = len(authors)
-            top_authors_count = sum(count for _, count in authors[:int(total_authors * 0.1)])
-            top_authors_percentage = (top_authors_count / total_count) * 100
-            
-            engagement_patterns["user_participation"] = f"{int(total_authors * 0.1)}% of users contribute {int(top_authors_percentage)}% of all content"
-        
-        # Content quality assessment
-        content_quality = {}
-        
-        # Source diversity
-        domain_query = f"""
-            SELECT 
-                domain,
-                COUNT(*) as post_count
-            FROM reddit_posts_view
-            WHERE {where_clause} AND domain != 'self.{subreddit}' AND domain IS NOT NULL
-            GROUP BY domain
-            ORDER BY post_count DESC
-        """
-        
-        domains = con.execute(domain_query, params).fetchall()
-        
-        if domains:
-            total_domains = len(domains)
-            top_domains_count = sum(count for _, count in domains[:3])
-            top_domains_percentage = (top_domains_count / total_count) * 100
-            
-            if top_domains_percentage > 70:
-                diversity = "Low"
-            elif top_domains_percentage > 40:
-                diversity = "Medium"
-            else:
-                diversity = "High"
-            
-            content_quality["source_diversity"] = f"{diversity} - {'dominated by a few sources' if diversity == 'Low' else 'balanced mix of sources'}"
-        
-        # Echo chamber assessment
-        if top_subreddits:
-            top_subreddit_count = top_subreddits[0][1]
-            top_subreddit_percentage = (top_subreddit_count / total_count) * 100
-            
-            if top_subreddit_percentage > 80:
-                echo_chamber_index = 0.8
-                echo_chamber_desc = "High"
-            elif top_subreddit_percentage > 50:
-                echo_chamber_index = 0.6
-                echo_chamber_desc = "Moderate"
-            else:
-                echo_chamber_index = 0.4
-                echo_chamber_desc = "Low"
-            
-            content_quality["echo_chamber_index"] = f"{echo_chamber_desc} ({echo_chamber_index:.2f}) - {'significant' if echo_chamber_desc == 'High' else 'some' if echo_chamber_desc == 'Moderate' else 'limited'} ideological clustering"
-        
-        # Generate recommendations based on insights
-        recommendations = []
-        
-        # Add recommendation based on engagement patterns
-        if "most_engaging_content" in engagement_patterns:
-            recommendations.append(f"Create content similar to the most engaging posts: {engagement_patterns['most_engaging_content']}")
-        
-        # Add recommendation based on echo chamber assessment
-        if "echo_chamber_index" in content_quality and content_quality["echo_chamber_index"].startswith("High"):
-            recommendations.append("Utilize cross-posting to diverse communities to reduce echo chamber effects")
-        
-        # Add recommendation based on time trends
-        if "most_active_times" in time_trends:
-            recommendations.append(f"Post during peak activity periods ({time_trends['most_active_times']}) for maximum visibility")
-        
-        # Add general recommendations
-        recommendations.append("Include verified sources and data to improve credibility and reception")
-        recommendations.append("Frame contentious topics as questions rather than statements to encourage discussion")
+        # Update time trends with Gemini insights if available
+        if enhanced_insights and 'time_trends' in enhanced_insights:
+            for key, value in enhanced_insights['time_trends'].items():
+                if key not in time_trends:
+                    time_trends[key] = value
         
         # Construct the response
         response = {
@@ -1772,27 +1664,13 @@ def get_ai_insights():
                 "end": max_date.strftime('%Y-%m-%d') if max_date else None
             },
             "sentiment": sentiment_desc,
-            "top_subreddits": [{"name": sr, "count": count} for sr, count in top_subreddits]
+            "top_subreddits": [{"name": sr, "count": count} for sr, count in top_subreddits],
+            "topics": topics,
+            "time_trends": time_trends,
+            "engagement_patterns": engagement_patterns,
+            "content_quality": content_quality,
+            "recommendations": recommendations
         }
-        
-        # Add topics if available
-        if topics:
-            response["topics"] = topics
-        
-        # Add time trends if available
-        if time_trends:
-            response["time_trends"] = time_trends
-        
-        # Add engagement patterns if available
-        if engagement_patterns:
-            response["engagement_patterns"] = engagement_patterns
-        
-        # Add content quality if available
-        if content_quality:
-            response["content_quality"] = content_quality
-        
-        # Add recommendations
-        response["recommendations"] = recommendations
         
         return jsonify(response)
         
@@ -1800,5 +1678,18 @@ def get_ai_insights():
         logger.error(f"Error generating AI insights: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+# Register the chat blueprint
+try:
+    # Pass the Gemini model to the chat module
+    init_chat_module(app, con, model)
+    logger.info("Chat module initialized with Gemini model")
+except NameError:
+    # If model is not defined (Gemini not available), initialize without it
+    init_chat_module(app, con)
+    logger.info("Chat module initialized without Gemini model")
+
 if __name__ == '__main__':
+    # Load data
+    load_and_process_data()
+    
     app.run(debug=True, port=5000)

@@ -28,6 +28,7 @@ import BubbleChartIcon from '@mui/icons-material/BubbleChart';
 import SentimentSatisfiedAltIcon from '@mui/icons-material/SentimentSatisfiedAlt';
 import TagIcon from '@mui/icons-material/Tag';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import ChatIcon from '@mui/icons-material/Chat';
 import { usePathname, useRouter } from 'next/navigation';
 import ThemeRegistry from "@/app/components/ThemeRegistry";
 import ThemeToggle from '@/app/components/ThemeToggle';
@@ -59,6 +60,7 @@ export default function RootLayout({
     { text: 'Sentiment Analysis', icon: <SentimentSatisfiedAltIcon />, path: '/sentiment' },
     { text: 'Topic Modeling', icon: <TagIcon />, path: '/topics' },
     { text: 'AI Insights', icon: <AutoAwesomeIcon />, path: '/ai-insights' },
+    { text: 'AI Chat', icon: <ChatIcon />, path: '/ai-chat' },
   ];
 
   const handleNavigation = (path: string) => {
