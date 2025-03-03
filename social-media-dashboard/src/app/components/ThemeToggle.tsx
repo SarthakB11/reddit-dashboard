@@ -45,7 +45,7 @@ export default function ThemeToggle() {
   
   return (
     <>
-      <Tooltip title={isDark ? "Switch to light mode" : "Switch to dark mode"}>
+      <Tooltip title={isDark ? "Switch to dark mode" : "Switch to light mode"}>
         <IconButton 
           onClick={handleThemeChange} 
           color="inherit" 
