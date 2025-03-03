@@ -2,69 +2,32 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  Button,
-  CircularProgress,
-  Divider,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  TextField,
-  Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  SelectChangeEvent,
-  LinearProgress,
+  Box, Typography, Paper, Grid, TextField, Button, CircularProgress,
+  Card, CardContent, Chip, List, ListItem, ListItemText, ListItemIcon,
+  Divider, Alert, Accordion, AccordionSummary, AccordionDetails
 } from '@mui/material';
-import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
-import LightbulbIcon from '@mui/icons-material/Lightbulb';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import TrendingDownIcon from '@mui/icons-material/TrendingDown';
-import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
-import WarningIcon from '@mui/icons-material/Warning';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import SearchIcon from '@mui/icons-material/Search';
-import ForumIcon from '@mui/icons-material/Forum';
-import PsychologyIcon from '@mui/icons-material/Psychology';
-import SendIcon from '@mui/icons-material/Send';
-import TagIcon from '@mui/icons-material/Tag';
-import ScheduleIcon from '@mui/icons-material/Schedule';
-import GroupIcon from '@mui/icons-material/Group';
-import AssessmentIcon from '@mui/icons-material/Assessment';
-import VerifiedIcon from '@mui/icons-material/Verified';
-import ErrorIcon from '@mui/icons-material/Error';
-import RefreshIcon from '@mui/icons-material/Refresh';
+import {
+  Search as SearchIcon,
+  Send as SendIcon,
+  Tag as TagIcon,
+  Lightbulb as LightbulbIcon,
+  Schedule as ScheduleIcon,
+  Group as GroupIcon,
+  Assessment as AssessmentIcon,
+  TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  TrendingFlat as TrendingFlatIcon,
+  Verified as VerifiedIcon,
+  SentimentSatisfied as SentimentSatisfiedIcon,
+  SentimentDissatisfied as SentimentDissatisfiedIcon,
+  SentimentNeutral as SentimentNeutralIcon,
+  ExpandMore as ExpandMoreIcon,
+  Refresh as RefreshIcon,
+  Save as SaveIcon,
+  Info as InfoIcon
+} from '@mui/icons-material';
 
-// Define interfaces for AI insights data
-interface Insight {
-  id: number;
-  type: 'trend' | 'anomaly' | 'prediction' | 'recommendation';
-  title: string;
-  description: string;
-  confidence: number;
-  relatedSubreddits: string[];
-  date: string;
-}
-
-interface AIQuestion {
-  id: number;
-  question: string;
-  answer: string;
-  date: string;
-}
-
+// Define interfaces for the AI insights data
 interface Topic {
   name: string;
   keywords: string[];
@@ -108,40 +71,42 @@ interface AIInsightsData {
   error?: string;
 }
 
-// API Status component
+// API status component
 const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+    <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
       <Box
         sx={{
-          width: 10,
-          height: 10,
+          width: 12,
+          height: 12,
           borderRadius: '50%',
+          mr: 1,
           bgcolor:
             status === 'connected'
               ? 'success.main'
-              : status === 'loading'
-              ? 'warning.main'
-              : 'error.main',
-          mr: 1,
+              : status === 'disconnected'
+              ? 'error.main'
+              : 'warning.main',
         }}
       />
       <Typography variant="body2" color="text.secondary">
         API Status:{' '}
         {status === 'connected'
           ? 'Connected'
-          : status === 'loading'
-          ? 'Loading...'
-          : 'Disconnected'}
+          : status === 'disconnected'
+          ? 'Disconnected'
+          : 'Checking connection...'}
       </Typography>
     </Box>
   );
 };
 
 export default function AIInsightsPage() {
-  const [loading, setLoading] = useState(true);
+  // State variables
+  const [loading, setLoading] = useState(false);
   const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
   const [aiData, setAIData] = useState<AIInsightsData | null>(null);
+  const [cachedData, setCachedData] = useState<Record<string, AIInsightsData>>({});
   const [userQuestion, setUserQuestion] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   const [questionResponse, setQuestionResponse] = useState<string | null>(null);
@@ -152,11 +117,28 @@ export default function AIInsightsPage() {
   const [subreddit, setSubreddit] = useState('');
   const [domain, setDomain] = useState('');
   
+  // Load cached data from localStorage on initial render
   useEffect(() => {
+    const savedCache = localStorage.getItem('aiInsightsCache');
+    if (savedCache) {
+      try {
+        const parsedCache = JSON.parse(savedCache);
+        setCachedData(parsedCache);
+        
+        // If there's a default entry, load it
+        if (parsedCache['default']) {
+          setAIData(parsedCache['default']);
+        }
+      } catch (e) {
+        console.error('Error parsing cached insights:', e);
+      }
+    }
+    
     // Check API health
     checkApiHealth();
   }, []);
   
+  // Check API health
   const checkApiHealth = async () => {
     try {
       setApiStatus('loading');
@@ -171,6 +153,7 @@ export default function AIInsightsPage() {
     }
   };
   
+  // Fetch insights from API or cache
   const fetchInsights = async () => {
     if (!keyword && !subreddit && !domain) {
       setError('Please provide at least one search parameter (keyword, subreddit, or domain)');
@@ -179,6 +162,17 @@ export default function AIInsightsPage() {
     
     setLoading(true);
     setError(null);
+    
+    // Create a cache key based on search parameters
+    const cacheKey = `${keyword}|${subreddit}|${domain}`;
+    
+    // Check if we have cached data for this query
+    if (cachedData[cacheKey]) {
+      console.log('Using cached data for query:', cacheKey);
+      setAIData(cachedData[cacheKey]);
+      setLoading(false);
+      return;
+    }
     
     try {
       // Build query parameters
@@ -195,7 +189,23 @@ export default function AIInsightsPage() {
       }
       
       const data = await response.json();
+      
+      // Update state with the new data
       setAIData(data);
+      
+      // Cache the data
+      const updatedCache = {
+        ...cachedData,
+        [cacheKey]: data,
+        // Also save as default if there isn't one yet
+        ...(!cachedData['default'] && { 'default': data })
+      };
+      
+      setCachedData(updatedCache);
+      
+      // Save to localStorage
+      localStorage.setItem('aiInsightsCache', JSON.stringify(updatedCache));
+      
     } catch (error) {
       console.error('Error fetching insights:', error);
       setError(error instanceof Error ? error.message : 'An unknown error occurred');
@@ -205,6 +215,14 @@ export default function AIInsightsPage() {
     }
   };
   
+  // Clear cache
+  const clearCache = () => {
+    setCachedData({});
+    localStorage.removeItem('aiInsightsCache');
+    setAIData(null);
+  };
+  
+  // Event handlers
   const handleKeywordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setKeyword(event.target.value);
   };
@@ -225,18 +243,19 @@ export default function AIInsightsPage() {
     setUserQuestion(event.target.value);
   };
   
+  // Process user questions using the AI data
   const handleAskQuestion = async () => {
-    if (!userQuestion.trim()) return;
+    if (!userQuestion.trim() || !aiData) return;
     
     setIsAskingQuestion(true);
     setQuestionResponse(null);
     
     try {
       // In a real implementation, this would call an API endpoint
-      // For now, we'll simulate a response based on the question
+      // For now, we'll generate a response based on the available data
       
       // Simulate API processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Generate a response based on the available data
       let response = "Based on the available data, ";
@@ -253,7 +272,7 @@ export default function AIInsightsPage() {
           response += `the overall sentiment is ${aiData.sentiment}. `;
           if (aiData.topics) {
             const sentiments = aiData.topics.map(t => t.sentiment);
-            const uniqueSentiments = [...new Set(sentiments)];
+            const uniqueSentiments = Array.from(new Set(sentiments));
             if (uniqueSentiments.length > 1) {
               response += `Different topics show varying sentiments including ${uniqueSentiments.join(', ')}. `;
             }
@@ -284,71 +303,73 @@ export default function AIInsightsPage() {
       setIsAskingQuestion(false);
     }
   };
-  
+
+  // Utility functions for displaying icons and colors
   const getInsightIcon = (type: string) => {
     switch (type) {
       case 'trend':
-        return <TrendingUpIcon sx={{ color: 'primary.main' }} />;
+        return <TrendingUpIcon />;
       case 'anomaly':
-        return <WarningIcon sx={{ color: 'warning.main' }} />;
+        return <InfoIcon />;
       case 'prediction':
-        return <AutoAwesomeIcon sx={{ color: 'secondary.main' }} />;
+        return <LightbulbIcon />;
       case 'recommendation':
-        return <LightbulbIcon sx={{ color: 'success.main' }} />;
+        return <VerifiedIcon />;
       default:
-        return <AutoAwesomeIcon sx={{ color: 'primary.main' }} />;
+        return <InfoIcon />;
     }
   };
   
   const getInsightColor = (type: string) => {
     switch (type) {
       case 'trend':
-        return 'primary';
+        return 'primary.main';
       case 'anomaly':
-        return 'warning';
-      case 'prediction':
-        return 'secondary';
-      case 'recommendation':
-        return 'success';
-      default:
-        return 'primary';
-    }
-  };
-  
-  const getSentimentColor = (sentiment: string) => {
-    switch (sentiment) {
-      case 'positive':
-        return 'success.main';
-      case 'slightly positive':
-        return 'success.light';
-      case 'negative':
-        return 'error.main';
-      case 'slightly negative':
-        return 'error.light';
-      case 'neutral':
-        return 'info.main';
-      case 'mixed':
         return 'warning.main';
-      case 'polarized':
-        return 'secondary.main';
-      case 'concerned':
-        return 'warning.dark';
+      case 'prediction':
+        return 'info.main';
+      case 'recommendation':
+        return 'success.main';
       default:
         return 'text.primary';
     }
   };
   
-  const getTrendIcon = (trend: string) => {
-    switch (trend) {
-      case 'up':
-        return <TrendingUpIcon sx={{ color: 'success.main' }} />;
-      case 'down':
-        return <TrendingDownIcon sx={{ color: 'error.main' }} />;
-      default:
-        return <TrendingFlatIcon sx={{ color: 'info.main' }} />;
+  const getSentimentIcon = (sentiment: string) => {
+    if (sentiment.includes('positive')) {
+      return <SentimentSatisfiedIcon />;
+    } else if (sentiment.includes('negative')) {
+      return <SentimentDissatisfiedIcon />;
+    } else {
+      return <SentimentNeutralIcon />;
     }
   };
   
+  const getSentimentColor = (sentiment: string) => {
+    if (sentiment.includes('positive')) {
+      return 'success.main';
+    } else if (sentiment.includes('negative')) {
+      return 'error.main';
+    } else if (sentiment === 'polarized') {
+      return 'warning.main';
+    } else if (sentiment === 'concerned') {
+      return 'info.main';
+    } else {
+      return 'text.secondary';
+    }
+  };
+  
+  const getTrendIcon = (trend: string) => {
+    if (trend.includes('increase') || trend.includes('growth') || trend.includes('up')) {
+      return <TrendingUpIcon color="success" />;
+    } else if (trend.includes('decrease') || trend.includes('decline') || trend.includes('down')) {
+      return <TrendingDownIcon color="error" />;
+    } else {
+      return <TrendingFlatIcon color="info" />;
+    }
+  };
+
+  // Render the component
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       <Typography variant="h4" component="h1" gutterBottom>
@@ -361,12 +382,30 @@ export default function AIInsightsPage() {
       
       <ApiStatus status={apiStatus} />
       
+      {/* Search parameters */}
       <Paper sx={{ p: 3, mb: 4 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
           <SearchIcon sx={{ fontSize: 28, mr: 1, color: 'primary.main' }} />
           <Typography variant="h6">
             Generate Insights
           </Typography>
+          
+          {/* Cache info */}
+          <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center' }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mr: 2 }}>
+              {Object.keys(cachedData).length > 0 
+                ? `${Object.keys(cachedData).length} cached queries` 
+                : 'No cached data'}
+            </Typography>
+            <Button 
+              size="small" 
+              startIcon={<RefreshIcon />} 
+              onClick={clearCache}
+              disabled={Object.keys(cachedData).length === 0}
+            >
+              Clear Cache
+            </Button>
+          </Box>
         </Box>
         
         <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -400,7 +439,7 @@ export default function AIInsightsPage() {
               value={domain}
               onChange={handleDomainChange}
               placeholder="Enter a domain"
-              helperText="Filter by source domain"
+              helperText="Filter by link domain"
             />
           </Grid>
         </Grid>
@@ -411,9 +450,9 @@ export default function AIInsightsPage() {
             color="primary"
             onClick={handleSearch}
             disabled={loading || (!keyword && !subreddit && !domain)}
-            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <AutoAwesomeIcon />}
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
           >
-            {loading ? 'Generating...' : 'Generate Insights'}
+            {loading ? 'Analyzing...' : 'Generate Insights'}
           </Button>
         </Box>
         
@@ -424,28 +463,25 @@ export default function AIInsightsPage() {
         )}
       </Paper>
       
+      {/* Ask questions */}
       <Paper sx={{ p: 3, mb: 4 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-          <PsychologyIcon sx={{ fontSize: 28, mr: 1, color: 'primary.main' }} />
-          <Typography variant="h6">
-            Ask the AI Assistant
-          </Typography>
-        </Box>
+        <Typography variant="h6" gutterBottom>
+          Ask Questions About the Data
+        </Typography>
         
-        <TextField
-          fullWidth
-          label="Ask a question about the data"
-          variant="outlined"
-          value={userQuestion}
-          onChange={handleQuestionChange}
-          placeholder="e.g., What are the main trends in this data?"
-          sx={{ mb: 2 }}
-        />
-        
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <TextField
+            fullWidth
+            label="Your Question"
+            variant="outlined"
+            value={userQuestion}
+            onChange={handleQuestionChange}
+            placeholder="e.g., What are the trends in this data?"
+            disabled={!aiData}
+          />
           <Button
             variant="contained"
-            color="secondary"
+            color="primary"
             onClick={handleAskQuestion}
             disabled={isAskingQuestion || !userQuestion.trim() || !aiData}
             startIcon={isAskingQuestion ? <CircularProgress size={20} color="inherit" /> : <SendIcon />}
@@ -461,6 +497,7 @@ export default function AIInsightsPage() {
         )}
       </Paper>
       
+      {/* Loading state */}
       {loading ? (
         <Box sx={{ my: 4, textAlign: 'center' }}>
           <CircularProgress />
@@ -470,6 +507,7 @@ export default function AIInsightsPage() {
         </Box>
       ) : aiData ? (
         <>
+          {/* Summary */}
           <Paper sx={{ p: 3, mb: 4 }}>
             <Typography variant="h6" gutterBottom>
               Summary
@@ -479,6 +517,101 @@ export default function AIInsightsPage() {
             </Typography>
           </Paper>
           
+          {/* Data overview */}
+          <Paper sx={{ p: 3, mb: 4 }}>
+            <Typography variant="h6" gutterBottom>
+              Data Overview
+            </Typography>
+            <Grid container spacing={3}>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent>
+                    <Typography color="text.secondary" gutterBottom>
+                      Total Posts
+                    </Typography>
+                    <Typography variant="h4">
+                      {aiData.total_posts.toLocaleString()}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent>
+                    <Typography color="text.secondary" gutterBottom>
+                      Date Range
+                    </Typography>
+                    <Typography variant="body1">
+                      {aiData.date_range.start} to {aiData.date_range.end}
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent>
+                    <Typography color="text.secondary" gutterBottom>
+                      Overall Sentiment
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ mr: 1, color: getSentimentColor(aiData.sentiment) }}>
+                        {getSentimentIcon(aiData.sentiment)}
+                      </Box>
+                      <Typography variant="body1" sx={{ color: getSentimentColor(aiData.sentiment) }}>
+                        {aiData.sentiment.charAt(0).toUpperCase() + aiData.sentiment.slice(1)}
+                      </Typography>
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} sm={6} md={3}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent>
+                    <Typography color="text.secondary" gutterBottom>
+                      Top Subreddit
+                    </Typography>
+                    {aiData.top_subreddits && aiData.top_subreddits.length > 0 ? (
+                      <Typography variant="body1">
+                        r/{aiData.top_subreddits[0].name} ({aiData.top_subreddits[0].count} posts)
+                      </Typography>
+                    ) : (
+                      <Typography variant="body1">No data available</Typography>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Paper>
+          
+          {/* Top Subreddits */}
+          {aiData.top_subreddits && aiData.top_subreddits.length > 0 && (
+            <Paper sx={{ p: 3, mb: 4 }}>
+              <Typography variant="h6" gutterBottom>
+                Top Subreddits
+              </Typography>
+              <Grid container spacing={2}>
+                {aiData.top_subreddits.map((subreddit, index) => (
+                  <Grid item xs={12} sm={6} md={4} key={index}>
+                    <Card>
+                      <CardContent>
+                        <Typography variant="h6" gutterBottom>
+                          r/{subreddit.name}
+                        </Typography>
+                        <Typography variant="body1">
+                          {subreddit.count} posts
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {((subreddit.count / aiData.total_posts) * 100).toFixed(1)}% of total
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Paper>
+          )}
+          
+          {/* Topics */}
           {aiData.topics && aiData.topics.length > 0 && (
             <Paper sx={{ p: 3, mb: 4 }}>
               <Typography variant="h6" gutterBottom>
@@ -496,9 +629,14 @@ export default function AIInsightsPage() {
                           <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
                             Sentiment:
                           </Typography>
-                          <Typography variant="body2" sx={{ color: getSentimentColor(topic.sentiment) }}>
-                            {topic.sentiment.charAt(0).toUpperCase() + topic.sentiment.slice(1)}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ mr: 0.5, color: getSentimentColor(topic.sentiment) }}>
+                              {getSentimentIcon(topic.sentiment)}
+                            </Box>
+                            <Typography variant="body2" sx={{ color: getSentimentColor(topic.sentiment) }}>
+                              {topic.sentiment.charAt(0).toUpperCase() + topic.sentiment.slice(1)}
+                            </Typography>
+                          </Box>
                         </Box>
                         <Typography variant="body2" color="text.secondary" gutterBottom>
                           {topic.post_count} posts
@@ -522,7 +660,9 @@ export default function AIInsightsPage() {
             </Paper>
           )}
           
+          {/* Time Trends and Engagement Patterns */}
           <Grid container spacing={3}>
+            {/* Time Trends */}
             {aiData.time_trends && (
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 3, height: '100%' }}>
@@ -541,6 +681,9 @@ export default function AIInsightsPage() {
                     )}
                     {aiData.time_trends.growth_rate && (
                       <ListItem>
+                        <ListItemIcon>
+                          {getTrendIcon(aiData.time_trends.growth_rate)}
+                        </ListItemIcon>
                         <ListItemText
                           primary="Growth Rate"
                           secondary={aiData.time_trends.growth_rate}
@@ -568,6 +711,7 @@ export default function AIInsightsPage() {
               </Grid>
             )}
             
+            {/* Engagement Patterns */}
             {aiData.engagement_patterns && (
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 3, height: '100%' }}>
@@ -606,7 +750,9 @@ export default function AIInsightsPage() {
             )}
           </Grid>
           
+          {/* Content Quality and Recommendations */}
           <Grid container spacing={3} sx={{ mt: 0.5 }}>
+            {/* Content Quality */}
             {aiData.content_quality && (
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 3, height: '100%' }}>
@@ -644,6 +790,7 @@ export default function AIInsightsPage() {
               </Grid>
             )}
             
+            {/* Recommendations */}
             {aiData.recommendations && aiData.recommendations.length > 0 && (
               <Grid item xs={12} md={6}>
                 <Paper sx={{ p: 3, height: '100%' }}>
@@ -665,6 +812,18 @@ export default function AIInsightsPage() {
               </Grid>
             )}
           </Grid>
+          
+          {/* Raw Data Accordion */}
+          <Accordion sx={{ mt: 3 }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Typography>View Raw JSON Data</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Paper sx={{ p: 2, bgcolor: 'background.default', maxHeight: 400, overflow: 'auto' }}>
+                <pre>{JSON.stringify(aiData, null, 2)}</pre>
+              </Paper>
+            </AccordionDetails>
+          </Accordion>
         </>
       ) : (
         <Paper sx={{ p: 3, textAlign: 'center' }}>
@@ -678,4 +837,4 @@ export default function AIInsightsPage() {
       )}
     </Box>
   );
-}
+} 
