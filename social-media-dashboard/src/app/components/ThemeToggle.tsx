@@ -45,7 +45,7 @@ export default function ThemeToggle() {
   
   return (
     <>
-      <Tooltip title={isDark ? "Switch to dark mode" : "Switch to light mode"}>
+      <Tooltip title={isDark ? "Switch to light mode" : "Switch to dark mode"}>
         <IconButton 
           onClick={handleThemeChange} 
           color="inherit" 
@@ -81,7 +81,7 @@ export default function ThemeToggle() {
           variant="filled"
           sx={{ width: '100%' }}
         >
-          Switched to {!isDark ? 'dark' : 'light'} mode
+          Switched to {!isDark ? 'light' : 'dark'} mode
         </Alert>
       </Snackbar>
     </>
