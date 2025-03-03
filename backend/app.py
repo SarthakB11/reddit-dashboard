@@ -23,7 +23,7 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
 # Import chat module - we'll import this later to avoid circular imports
-from backend.chat.routes import init_chat_module
+from chat.routes import init_chat_module
 
 # Initialize Flask app
 app = Flask(__name__)
