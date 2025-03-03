@@ -88,16 +88,6 @@ class ChatEngine:
         # Clean and normalize the query
         clean_query = self._clean_query(query)
         
-        # Check for predefined topics first
-        for topic, response in TOPIC_RESPONSES.items():
-            if topic.lower() in clean_query.lower():
-                logger.info(f"Using predefined response for topic: {topic}")
-                return {
-                    "response": response,
-                    "source": "predefined",
-                    "confidence": 0.95
-                }
-        
         # Get database results
         db_results = self._query_database(clean_query) if self.db_connection else None
         logger.info(f"Database results found: {db_results is not None}")
@@ -118,12 +108,22 @@ class ChatEngine:
                 }
             except Exception as e:
                 logger.error(f"Gemini generation failed: {str(e)}")
-                logger.error("Falling back to rule-based response")
+                logger.error("Falling back to predefined or rule-based response")
         else:
             logger.warning(f"Gemini not available or model not provided. GEMINI_AVAILABLE={GEMINI_AVAILABLE}, model={self.gemini_model is not None}")
         
-        # Fall back to rule-based response generation
-        logger.info("Using rule-based response generation")
+        # Fall back to predefined topics if available
+        for topic, response in TOPIC_RESPONSES.items():
+            if topic.lower() in clean_query.lower():
+                logger.info(f"Falling back to predefined response for topic: {topic}")
+                return {
+                    "response": response,
+                    "source": "predefined",
+                    "confidence": 0.8
+                }
+        
+        # As a last resort, fall back to rule-based response generation
+        logger.info("Falling back to rule-based response generation")
         return {
             "response": self._generate_rule_based_response(clean_query, db_results),
             "source": "rule_based",
