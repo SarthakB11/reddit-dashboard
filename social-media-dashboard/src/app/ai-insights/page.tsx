@@ -26,6 +26,7 @@ import {
   Save as SaveIcon,
   Info as InfoIcon
 } from '@mui/icons-material';
+import dynamic from 'next/dynamic';
 
 // Define interfaces for the AI insights data
 interface Topic {
@@ -71,10 +72,10 @@ interface AIInsightsData {
   error?: string;
 }
 
-// API status component
-const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
+// API status component with no SSR
+const ApiStatus = dynamic(() => Promise.resolve(({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
   return (
-    <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }}>
+    <Box sx={{ mb: 3, display: 'flex', alignItems: 'center' }} suppressHydrationWarning>
       <Box
         sx={{
           width: 12,
@@ -99,6 +100,36 @@ const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading
       </Typography>
     </Box>
   );
+}), { ssr: false });
+
+// Helper function to safely stringify any value
+const safeStringify = (value: any): string => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => safeStringify(item)).join(', ');
+  }
+  if (typeof value === 'object') {
+    // Handle objects with description field specifically
+    if ('description' in value) {
+      return value.description;
+    }
+    try {
+      // For other objects, try to get a readable representation
+      const entries = Object.entries(value);
+      if (entries.length === 0) return '';
+      return entries
+        .map(([key, val]) => `${key}: ${safeStringify(val)}`)
+        .join(', ');
+    } catch (e) {
+      return String(value);
+    }
+  }
+  return String(value);
 };
 
 export default function AIInsightsPage() {
@@ -305,7 +336,9 @@ export default function AIInsightsPage() {
   };
 
   // Utility functions for displaying icons and colors
-  const getInsightIcon = (type: string) => {
+  const getInsightIcon = (type: string | undefined) => {
+    if (!type) return <InfoIcon />;
+    
     switch (type) {
       case 'trend':
         return <TrendingUpIcon />;
@@ -320,7 +353,9 @@ export default function AIInsightsPage() {
     }
   };
   
-  const getInsightColor = (type: string) => {
+  const getInsightColor = (type: string | undefined) => {
+    if (!type) return 'text.primary';
+    
     switch (type) {
       case 'trend':
         return 'primary.main';
@@ -335,20 +370,26 @@ export default function AIInsightsPage() {
     }
   };
   
-  const getSentimentIcon = (sentiment: string) => {
-    if (sentiment.includes('positive')) {
+  const getSentimentIcon = (sentiment: string | undefined) => {
+    if (!sentiment) return <SentimentNeutralIcon />;
+    
+    const sentimentLower = sentiment.toLowerCase();
+    if (sentimentLower.includes('positive')) {
       return <SentimentSatisfiedIcon />;
-    } else if (sentiment.includes('negative')) {
+    } else if (sentimentLower.includes('negative')) {
       return <SentimentDissatisfiedIcon />;
     } else {
       return <SentimentNeutralIcon />;
     }
   };
   
-  const getSentimentColor = (sentiment: string) => {
-    if (sentiment.includes('positive')) {
+  const getSentimentColor = (sentiment: string | undefined) => {
+    if (!sentiment) return 'text.secondary';
+    
+    const sentimentLower = sentiment.toLowerCase();
+    if (sentimentLower.includes('positive')) {
       return 'success.main';
-    } else if (sentiment.includes('negative')) {
+    } else if (sentimentLower.includes('negative')) {
       return 'error.main';
     } else if (sentiment === 'polarized') {
       return 'warning.main';
@@ -359,19 +400,46 @@ export default function AIInsightsPage() {
     }
   };
   
-  const getTrendIcon = (trend: string) => {
-    if (trend.includes('increase') || trend.includes('growth') || trend.includes('up')) {
-      return <TrendingUpIcon color="success" />;
-    } else if (trend.includes('decrease') || trend.includes('decline') || trend.includes('down')) {
-      return <TrendingDownIcon color="error" />;
-    } else {
+  const getTrendIcon = (trend: string | undefined) => {
+    if (!trend || typeof trend !== 'string') return <TrendingFlatIcon color="info" />;
+    
+    try {
+      const trendLower = trend.toLowerCase();
+      if (trendLower.includes('increase') || trendLower.includes('growth') || trendLower.includes('up')) {
+        return <TrendingUpIcon color="success" />;
+      } else if (trendLower.includes('decrease') || trendLower.includes('decline') || trendLower.includes('down')) {
+        return <TrendingDownIcon color="error" />;
+      } else {
+        return <TrendingFlatIcon color="info" />;
+      }
+    } catch (error) {
       return <TrendingFlatIcon color="info" />;
     }
   };
 
+  // Update the render methods to use safeStringify with better error handling
+  const renderListItem = (primary: string, secondary: any) => {
+    let secondaryText: string;
+    try {
+      secondaryText = safeStringify(secondary);
+    } catch (error) {
+      console.error('Error stringifying secondary text:', error);
+      secondaryText = 'Error displaying content';
+    }
+
+    return (
+      <ListItem>
+        <ListItemText
+          primary={primary}
+          secondary={secondaryText}
+        />
+      </ListItem>
+    );
+  };
+
   // Render the component
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }} suppressHydrationWarning>
       <Typography variant="h4" component="h1" gutterBottom>
         AI Insights
       </Typography>
@@ -671,40 +739,21 @@ export default function AIInsightsPage() {
                     <Typography variant="h6">Time Trends</Typography>
                   </Box>
                   <List>
-                    {aiData.time_trends.peak_period && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Peak Period"
-                          secondary={aiData.time_trends.peak_period}
-                        />
-                      </ListItem>
+                    {aiData.time_trends.peak_period && renderListItem(
+                      "Peak Period",
+                      aiData.time_trends.peak_period
                     )}
-                    {aiData.time_trends.growth_rate && (
-                      <ListItem>
-                        <ListItemIcon>
-                          {getTrendIcon(aiData.time_trends.growth_rate)}
-                        </ListItemIcon>
-                        <ListItemText
-                          primary="Growth Rate"
-                          secondary={aiData.time_trends.growth_rate}
-                        />
-                      </ListItem>
+                    {aiData.time_trends.growth_rate && renderListItem(
+                      "Growth Rate",
+                      aiData.time_trends.growth_rate
                     )}
-                    {aiData.time_trends.most_active_times && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Most Active Times"
-                          secondary={aiData.time_trends.most_active_times}
-                        />
-                      </ListItem>
+                    {aiData.time_trends.most_active_times && renderListItem(
+                      "Most Active Times",
+                      aiData.time_trends.most_active_times
                     )}
-                    {aiData.time_trends.seasonal_patterns && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Seasonal Patterns"
-                          secondary={aiData.time_trends.seasonal_patterns}
-                        />
-                      </ListItem>
+                    {aiData.time_trends.seasonal_patterns && renderListItem(
+                      "Seasonal Patterns",
+                      aiData.time_trends.seasonal_patterns
                     )}
                   </List>
                 </Paper>
@@ -720,29 +769,19 @@ export default function AIInsightsPage() {
                     <Typography variant="h6">Engagement Patterns</Typography>
                   </Box>
                   <List>
-                    {aiData.engagement_patterns.most_engaging_content && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Most Engaging Content"
-                          secondary={aiData.engagement_patterns.most_engaging_content}
-                        />
-                      </ListItem>
+                    {aiData.engagement_patterns.most_engaging_content && renderListItem(
+                      "Most Engaging Content",
+                      aiData.engagement_patterns.most_engaging_content
                     )}
-                    {aiData.engagement_patterns.controversial_topics && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Controversial Topics"
-                          secondary={aiData.engagement_patterns.controversial_topics.join(', ')}
-                        />
-                      </ListItem>
+                    {aiData.engagement_patterns.controversial_topics && 
+                     Array.isArray(aiData.engagement_patterns.controversial_topics) && 
+                     aiData.engagement_patterns.controversial_topics.length > 0 && renderListItem(
+                      "Controversial Topics",
+                      aiData.engagement_patterns.controversial_topics
                     )}
-                    {aiData.engagement_patterns.user_participation && (
-                      <ListItem>
-                        <ListItemText
-                          primary="User Participation"
-                          secondary={aiData.engagement_patterns.user_participation}
-                        />
-                      </ListItem>
+                    {aiData.engagement_patterns.user_participation && renderListItem(
+                      "User Participation",
+                      aiData.engagement_patterns.user_participation
                     )}
                   </List>
                 </Paper>
@@ -761,29 +800,17 @@ export default function AIInsightsPage() {
                     <Typography variant="h6">Content Quality</Typography>
                   </Box>
                   <List>
-                    {aiData.content_quality.source_diversity && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Source Diversity"
-                          secondary={aiData.content_quality.source_diversity}
-                        />
-                      </ListItem>
+                    {aiData.content_quality.source_diversity && renderListItem(
+                      "Source Diversity",
+                      aiData.content_quality.source_diversity
                     )}
-                    {aiData.content_quality.factual_accuracy && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Factual Accuracy"
-                          secondary={aiData.content_quality.factual_accuracy}
-                        />
-                      </ListItem>
+                    {aiData.content_quality.factual_accuracy && renderListItem(
+                      "Factual Accuracy",
+                      aiData.content_quality.factual_accuracy
                     )}
-                    {aiData.content_quality.echo_chamber_index && (
-                      <ListItem>
-                        <ListItemText
-                          primary="Echo Chamber Index"
-                          secondary={aiData.content_quality.echo_chamber_index}
-                        />
-                      </ListItem>
+                    {aiData.content_quality.echo_chamber_index && renderListItem(
+                      "Echo Chamber Index",
+                      aiData.content_quality.echo_chamber_index
                     )}
                   </List>
                 </Paper>

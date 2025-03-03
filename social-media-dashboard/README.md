@@ -1,82 +1,326 @@
-# Social Media Analysis Dashboard
+# Frontend Documentation
 
-An interactive dashboard for analyzing and visualizing social media data to uncover insights and trends in how information spreads across platforms.
+## 🎯 Overview
 
-## Features
+The frontend of the Reddit Analysis Dashboard is built with Next.js 13+, utilizing the App Router, Server Components, and Material UI for a modern, responsive user interface.
 
-### Interactive Data Visualization
-- **Time Series Analysis**: Track post volume and engagement patterns over time
-- **Network Analysis**: Visualize connections between users, subreddits, and content
-- **Sentiment Analysis**: Track emotional tone across conversations and topics
-- **Topic Modeling**: Discover key themes and topics through advanced text analysis
-- **AI-powered Insights**: Get automatic summaries and trend detection
+## 🏗️ Project Structure
 
-### Modern UI with Theme Support
-- **Dark/Light Mode Toggle**: Switch between dark and light themes with a single click
-- **Persistent Preferences**: Your theme preference is saved in localStorage
-- **System Preference Detection**: Automatically detects and applies your system's theme preference
-- **Smooth Transitions**: Enjoy smooth animations when switching between themes
-- **Responsive Design**: Works on desktop, tablet, and mobile devices
+```
+frontend/
+├── src/
+│   ├── app/                    # Next.js App Router
+│   │   ├── layout.tsx         # Root layout
+│   │   ├── page.tsx          # Home page
+│   │   ├── ai-insights/      # AI Insights feature
+│   │   ├── dashboard/        # Dashboard feature
+│   │   ├── network/          # Network analysis
+│   │   ├── sentiment/        # Sentiment analysis
+│   │   └── topics/          # Topic modeling
+│   ├── components/           # Reusable components
+│   │   ├── common/          # Common UI components
+│   │   ├── charts/          # Chart components
+│   │   ├── layout/          # Layout components
+│   │   └── ThemeRegistry/   # Theme configuration
+│   ├── hooks/               # Custom React hooks
+│   ├── lib/                 # Utility functions
+│   ├── services/            # API services
+│   ├── styles/              # Global styles
+│   └── types/              # TypeScript types
+├── public/                 # Static assets
+├── tests/                 # Frontend tests
+│   ├── unit/             # Unit tests
+│   ├── integration/      # Integration tests
+│   └── e2e/             # End-to-end tests
+├── .env.example         # Environment variables template
+├── next.config.js      # Next.js configuration
+├── package.json        # Dependencies and scripts
+└── tsconfig.json      # TypeScript configuration
+```
 
-### Comprehensive Search & Filtering
-- Filter by date range, subreddit, author, sentiment, and keyword
-- Save and share search parameters via URL
+## 🚀 Getting Started
 
-## Getting Started
+### Prerequisites
 
-First, install dependencies:
+- Node.js 18+
+- npm or yarn
+- Git
 
+### Installation
+
+1. Clone the repository and navigate to frontend:
+```bash
+git clone https://github.com/yourusername/social-media-dashboard.git
+cd social-media-dashboard/frontend
+```
+
+2. Install dependencies:
 ```bash
 npm install
 ```
 
-Then run the development server:
+3. Copy environment variables:
+```bash
+cp .env.example .env.local
+```
 
+4. Start development server:
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the dashboard.
+## 🔧 Configuration
 
-## Usage
+### Environment Variables
 
-1. Navigate to the dashboard to see an overview of key metrics
-2. Use the sidebar to navigate between different analysis tools
-3. Toggle between dark and light mode using the theme button in the sidebar
-4. Explore data through the interactive visualizations and filters
-5. Search for specific content using the search functionality
+```env
+# API Configuration
+NEXT_PUBLIC_API_URL=http://localhost:5000
+NEXT_PUBLIC_WS_URL=ws://localhost:5000
 
-## Technology Stack
+# Feature Flags
+NEXT_PUBLIC_ENABLE_ANALYTICS=true
+NEXT_PUBLIC_ENABLE_DARK_MODE=true
 
-- **Next.js**: React framework for server-side rendering and routing
-- **TypeScript**: Type safety and improved developer experience
-- **Material UI**: Component library for consistent UI design
-- **React**: UI library for building user interfaces
-- **LocalStorage**: For user preference persistence
-
-## Project Structure
-
-```
-/src
-  /app                  # Next.js App Router
-    /components         # Reusable components
-      /ThemeRegistry.tsx # Theme context and provider
-      /ThemeToggle.tsx  # Dark/light mode toggle
-    /dashboard          # Dashboard page
-    /network            # Network analysis page
-    /sentiment          # Sentiment analysis page
-    /timeseries         # Time series analysis page
-    /topics             # Topic modeling page
-    layout.tsx          # Root layout with sidebar
+# Third Party Services
+NEXT_PUBLIC_GOOGLE_ANALYTICS_ID=your-ga-id
 ```
 
-## Learn More
+## 📚 Key Features
 
-To learn more about the technologies used:
+### 1. Theme System
+- Dark/Light mode support
+- Custom Material UI theme
+- CSS-in-JS with emotion
+- Global styles and typography
 
-- [Next.js Documentation](https://nextjs.org/docs)
-- [Material UI Documentation](https://mui.com/material-ui/getting-started/overview/)
+### 2. Data Visualization
+- Interactive charts with Plotly.js
+- Network graphs with D3.js
+- Real-time updates
+- Responsive layouts
 
-## Deployment
+### 3. State Management
+- React Context for global state
+- Custom hooks for local state
+- SWR for data fetching
+- WebSocket integration
 
-The dashboard can be deployed on Vercel or any other platform that supports Next.js applications.
+### 4. Performance
+- Server-side rendering
+- Dynamic imports
+- Image optimization
+- Bundle optimization
+
+## 🧪 Testing
+
+### Unit Tests
+```bash
+npm run test:unit
+```
+
+### Integration Tests
+```bash
+npm run test:integration
+```
+
+### E2E Tests
+```bash
+npm run test:e2e
+```
+
+### Coverage Report
+```bash
+npm run test:coverage
+```
+
+## 📦 Building for Production
+
+1. Build the application:
+```bash
+npm run build
+```
+
+2. Start production server:
+```bash
+npm start
+```
+
+## 🔍 Code Quality
+
+### Linting
+```bash
+npm run lint
+```
+
+### Type Checking
+```bash
+npm run type-check
+```
+
+### Format Code
+```bash
+npm run format
+```
+
+## 📱 Responsive Design
+
+The dashboard is fully responsive with breakpoints:
+- Mobile: < 600px
+- Tablet: 600px - 960px
+- Desktop: > 960px
+
+## 🔒 Security
+
+- CSRF protection
+- XSS prevention
+- Content Security Policy
+- Secure HTTP headers
+- Input sanitization
+
+## 🎯 Best Practices
+
+### Performance
+- Code splitting
+- Tree shaking
+- Lazy loading
+- Memoization
+- Debouncing/Throttling
+
+### Accessibility
+- ARIA labels
+- Keyboard navigation
+- Color contrast
+- Screen reader support
+- Focus management
+
+### SEO
+- Meta tags
+- Semantic HTML
+- Structured data
+- Sitemap
+- robots.txt
+
+## 📚 Component Library
+
+### Common Components
+- Button
+- Card
+- Dialog
+- TextField
+- Select
+- Table
+- Tabs
+- Alert
+
+### Chart Components
+- LineChart
+- BarChart
+- PieChart
+- NetworkGraph
+- HeatMap
+- WordCloud
+
+### Layout Components
+- Sidebar
+- Header
+- Footer
+- Grid
+- Container
+
+## 🔄 State Management
+
+### Global State
+- Theme preferences
+- User settings
+- Authentication
+- Notifications
+
+### API Integration
+- REST endpoints
+- WebSocket connections
+- Error handling
+- Loading states
+- Cache management
+
+## 📈 Analytics
+
+- Page views
+- User interactions
+- Error tracking
+- Performance monitoring
+- Custom events
+
+## 🌐 Internationalization
+
+- Multiple language support
+- RTL layout support
+- Date/time formatting
+- Number formatting
+- Currency handling
+
+## 📱 PWA Support
+
+- Service worker
+- Offline functionality
+- Push notifications
+- App manifest
+- Install prompts
+
+## 🤝 Contributing
+
+1. Follow the code style guide
+2. Write meaningful commit messages
+3. Add tests for new features
+4. Update documentation
+5. Create pull requests
+
+## 📖 Documentation
+
+- Component documentation
+- API documentation
+- State management
+- Testing guide
+- Deployment guide
+
+## 🐛 Debugging
+
+- Chrome DevTools
+- React DevTools
+- Network monitoring
+- Performance profiling
+- Error boundaries
+
+## 📦 Dependencies
+
+### Core
+- next: ^13.0.0
+- react: ^18.0.0
+- @mui/material: ^5.0.0
+- typescript: ^5.0.0
+
+### Data Visualization
+- plotly.js
+- d3.js
+- react-wordcloud
+
+### Development
+- jest
+- @testing-library/react
+- cypress
+- eslint
+- prettier
+
+## 🔧 Scripts
+
+```json
+{
+  "dev": "next dev",
+  "build": "next build",
+  "start": "next start",
+  "lint": "next lint",
+  "test": "jest",
+  "e2e": "cypress run",
+  "format": "prettier --write ."
+}
+``` 
