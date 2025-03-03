@@ -14,6 +14,7 @@ from textblob import TextBlob
 import duckdb
 import logging
 import sys
+from dotenv import load_dotenv
 
 # Imports for machine learning and NLP capabilities
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
@@ -41,7 +42,7 @@ try:
     from google.generativeai.types import HarmCategory, HarmBlockThreshold
     
     # Configure Gemini API
-    GEMINI_API_KEY = "AIzaSyC1yRnFiDvexQcY3KOPBNLQHvpU6sG3x0o"
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")  # Read from environment variable
     genai.configure(api_key=GEMINI_API_KEY)
     
     # Set up the Gemini model
