@@ -79,7 +79,7 @@ A comprehensive full-stack application for analyzing Reddit data using AI-powere
 ### Frontend Setup
 ```bash
 cd social-media-dashboard
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 
