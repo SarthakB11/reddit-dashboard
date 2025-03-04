@@ -7,6 +7,9 @@
 ## 🚀 Overview
 A comprehensive full-stack application for analyzing Reddit data using AI-powered insights, interactive visualizations, and real-time analytics. The platform provides deep insights into social media trends, sentiment analysis, and user engagement patterns.
 
+## Demo Video 
+https://drive.google.com/file/d/1H48_XLk1vdFovn049T3iJLWT9CJ7S9CJ/view?usp=drive_link
+
 ## ✨ Features
 
 ### 🤖 AI-Powered Analytics
@@ -29,6 +32,19 @@ A comprehensive full-stack application for analyzing Reddit data using AI-powere
 - Real-time updates
 - Interactive filters
 - Cross-platform compatibility
+
+## 🚀 Screesnhots
+![Screenshot from 2025-03-05 00-48-49](https://github.com/user-attachments/assets/232c7ebf-541c-44b8-a1d1-fc019dff512b)
+![Screenshot from 2025-03-05 00-49-12](https://github.com/user-attachments/assets/4e46ac48-3df0-4fe6-82bf-69bab5eb15e5)
+![Screenshot from 2025-03-05 00-49-46](https://github.com/user-attachments/assets/e56ca6e5-45e7-4f47-9f3d-54fbe5458a4a)
+![Screenshot from 2025-03-05 00-52-31](https://github.com/user-attachments/assets/e4b3675d-2edc-4102-a8fb-12258a7b1444)
+![Screenshot from 2025-03-05 00-52-57](https://github.com/user-attachments/assets/ec7b4c7f-372e-4388-878f-b2bb5a77581b)
+![Screenshot from 2025-03-05 00-53-17](https://github.com/user-attachments/assets/04d6eabf-423f-49c5-9371-4ebd819a0d40)
+![Screenshot from 2025-03-05 00-53-40](https://github.com/user-attachments/assets/be6171aa-9e7a-40f5-adb7-681dfd8865eb)
+![Screenshot from 2025-03-05 00-54-12](https://github.com/user-attachments/assets/1e1f3835-6670-4078-a6c0-6a3939dc6016)
+![Screenshot from 2025-03-05 00-54-30](https://github.com/user-attachments/assets/8c135b98-a4dd-4fbf-a861-0727722dcf09)
+![Screenshot from 2025-03-05 00-59-20](https://github.com/user-attachments/assets/c91df2e3-2b33-4db3-bb51-dbf4d76b55a3)
+![Screenshot from 2025-03-05 01-01-24](https://github.com/user-attachments/assets/195175da-edaa-4b52-a209-8f794f2f4ccb)
 
 ## 🛠️ Tech Stack
 
