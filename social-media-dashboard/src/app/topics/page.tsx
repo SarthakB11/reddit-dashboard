@@ -403,16 +403,9 @@ function TopicModelingContent() {
   // Function to check API health
   const checkApiHealth = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) });
-      if (response.ok) {
-        setApiStatus('connected');
-        return true;
-      } else {
-        setApiStatus('disconnected');
-        return false;
-      }
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+      return response.ok;
     } catch (err) {
-      setApiStatus('disconnected');
       return false;
     }
   };

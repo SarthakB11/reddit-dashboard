@@ -364,20 +364,70 @@ export default function NetworkAnalysisPage() {
   useEffect(() => {
     const checkApiConnection = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) });
-        if (response.ok) {
-          if (apiStatus !== 'connected') {
-            setApiStatus('connected');
-            // If we were using sample data and API is now available, refresh data
-            if (usingSampleData) {
-              fetchNetworkData(networkType, keyword);
-            }
-          }
-        } else {
+        const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) })
+          .then(res => res.ok)
+          .catch(() => false);
+          
+        if (!healthCheck) {
           setApiStatus('disconnected');
+          throw new Error('API server is not available');
         }
-      } catch (err) {
+        
+        // Try to get data from the API
+        const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/network`);
+        apiUrl.searchParams.append('type', networkType);
+        if (keyword) {
+          apiUrl.searchParams.append('keyword', keyword);
+        }
+        // Remove limit from frontend to use backend default
+        
+        const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
+        
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.nodes || data.nodes.length === 0) {
+          setError(`No network data found for ${networkType === 'subreddit' ? 'subreddits' : 'authors'}${keyword ? ` matching "${keyword}"` : ''}.`);
+          // Fall back to sample data with empty results message
+          const mockData = generateMockNetworkData();
+          setNetworkData(mockData);
+          setUsingSampleData(true);
+        } else {
+          // Success - set API connection status and use actual data
+          setApiStatus('connected');
+          
+          // If metrics are missing, calculate them
+          if (!data.metrics) {
+            const nodeCount = data.nodes.length;
+            const linkCount = data.links.length;
+            const totalPossibleConnections = nodeCount * (nodeCount - 1) / 2;
+            const density = totalPossibleConnections > 0 ? linkCount / totalPossibleConnections : 0;
+            const avgConnections = data.nodes.reduce((sum: number, node: any) => sum + (node.connections || 0), 0) / nodeCount;
+            
+            data.metrics = {
+              density: Math.round(density * 100) / 100,
+              modularity: 0.65, // Placeholder
+              communities: Math.max(1, Math.round(linkCount / 10)), // Simple heuristic
+              avgConnections: Math.round(avgConnections * 10) / 10
+            };
+          }
+          
+          setNetworkData(data);
+        }
+      } catch (err: any) {
+        console.error('Error fetching network data:', err);
+        setError(`Failed to load network data from API: ${err.message}. Using sample data instead.`);
         setApiStatus('disconnected');
+        
+        // Fallback to mock data in case of API error
+        const mockData = generateMockNetworkData();
+        setNetworkData(mockData);
+        setUsingSampleData(true);
+      } finally {
+        setLoading(false);
       }
     };
     
@@ -388,7 +438,7 @@ export default function NetworkAnalysisPage() {
     const interval = setInterval(checkApiConnection, 30000);
     
     return () => clearInterval(interval);
-  }, [apiStatus, networkType, keyword, usingSampleData]);
+  }, [networkType, keyword, usingSampleData]);
   
   const fetchNetworkData = async (type: 'subreddit' | 'author', searchKeyword: string = '') => {
     setLoading(true);
@@ -397,7 +447,7 @@ export default function NetworkAnalysisPage() {
     
     try {
       // First check if API is available
-      const healthCheck = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) })
+      const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) })
         .then(res => res.ok)
         .catch(() => false);
         
