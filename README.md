@@ -166,7 +166,7 @@ pytest
 This project is licensed under the MIT License.
 
 ## 👥 Authors
-- [Your Name] - Initial work
+- Sarthak Bhardwaj
 
 ## 🙏 Acknowledgments
 - Material-UI for the component library
