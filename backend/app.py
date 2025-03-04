@@ -27,7 +27,14 @@ from chat.routes import init_chat_module
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["https://reddit-dashboard-one.vercel.app", "http://localhost:3000"])
+CORS(app, origins=[
+    "https://reddit-dashboard-one.vercel.app",
+    "https://reddit-dashboard-git-main-sarthakb11.vercel.app",
+    "https://reddit-dashboard.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://0.0.0.0:3000"
+])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -85,7 +92,7 @@ def load_and_process_data():
         if not os.path.exists(data_path):
             logger.error(f"Data file not found at {data_path}")
             # Try alternate path for local development
-            alt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'data.jsonl')
+            alt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),'backend', 'data', 'data.jsonl')
             if os.path.exists(alt_path):
                 logger.info(f"Found data file at alternate path: {alt_path}")
                 data_path = alt_path
