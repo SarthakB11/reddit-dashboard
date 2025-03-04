@@ -32,6 +32,8 @@ CORS(app, origins=[
     "https://reddit-dashboard-git-main-sarthakb11.vercel.app",
     "https://reddit-dashboard.vercel.app",
     "https://reddit-dashboard-sarthakb11.vercel.app",
+    "https://reddit-dashboard-one-sarthakb11.vercel.app",
+    "https://reddit-dashboard-git-main.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://0.0.0.0:3000"

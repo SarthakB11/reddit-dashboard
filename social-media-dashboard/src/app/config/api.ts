@@ -14,6 +14,16 @@ export const API_ENDPOINTS = {
     CHAT: `${API_BASE_URL}/api/chat/message`
 };
 
+// Default fetch options
+export const DEFAULT_FETCH_OPTIONS = {
+    headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    },
+    mode: 'cors' as RequestMode,
+    credentials: 'include' as RequestCredentials
+};
+
 // API Request Timeouts (in milliseconds)
 export const API_TIMEOUTS = {
     HEALTH_CHECK: 3000,
@@ -39,5 +49,24 @@ export const handleApiError = (error: any): string => {
     } else {
         // Request setup error
         return error.message || 'Error occurred while making request';
+    }
+};
+
+// API Health Check
+export const checkApiHealth = async (): Promise<boolean> => {
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUTS.HEALTH_CHECK);
+
+        const response = await fetch(API_ENDPOINTS.HEALTH, {
+            ...DEFAULT_FETCH_OPTIONS,
+            signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+        return response.ok;
+    } catch (error) {
+        console.error('API Health Check failed:', error);
+        return false;
     }
 }; 
