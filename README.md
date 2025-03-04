@@ -7,7 +7,7 @@
 ## 🚀 Overview
 A comprehensive full-stack application for analyzing Reddit data using AI-powered insights, interactive visualizations, and real-time analytics. The platform provides deep insights into social media trends, sentiment analysis, and user engagement patterns.
 
-## Demo Video 
+## 🛠️ Demo Video 
 https://drive.google.com/file/d/1H48_XLk1vdFovn049T3iJLWT9CJ7S9CJ/view?usp=drive_link
 
 ## ✨ Features
