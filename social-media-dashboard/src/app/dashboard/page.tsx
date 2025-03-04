@@ -124,7 +124,7 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch('http://localhost:5000/api/stats');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stats`);
         if (!response.ok) {
           throw new Error('Failed to fetch dashboard data');
         }

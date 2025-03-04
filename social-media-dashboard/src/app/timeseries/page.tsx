@@ -54,7 +54,7 @@ export default function TimeSeriesPage() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`http://localhost:5000/api/timeseries?interval=${timeUnit}`);
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/timeseries?interval=${timeUnit}`);
         if (!response.ok) {
           throw new Error('Failed to fetch time series data');
         }

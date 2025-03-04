@@ -173,7 +173,7 @@ export default function AIInsightsPage() {
   const checkApiHealth = async () => {
     try {
       setApiStatus('loading');
-      const response = await fetch('http://localhost:5000/api/health');
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`);
       if (response.ok) {
         setApiStatus('connected');
       } else {
@@ -212,7 +212,7 @@ export default function AIInsightsPage() {
       if (subreddit) params.append('subreddit', subreddit);
       if (domain) params.append('domain', domain);
       
-      const response = await fetch(`http://localhost:5000/api/ai/insights?${params.toString()}`);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai/insights?${params.toString()}`);
       
       if (!response.ok) {
         const errorData = await response.json();

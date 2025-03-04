@@ -73,7 +73,7 @@ export default function ChatInterface() {
     
     try {
       // Call the API
-      const response = await fetch('http://localhost:5000/api/chat/message', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat/message`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
