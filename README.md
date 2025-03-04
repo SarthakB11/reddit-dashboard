@@ -1,51 +1,71 @@
-# Social Media Analysis Dashboard
+# Reddit Dashboard - Social Media Analysis Platform
 
-A comprehensive full-stack application for analyzing social media data using AI-powered insights, interactive visualizations, and real-time analytics.
+## 🌐 Live Demo
+- **Frontend**: [https://reddit-dashboard-one.vercel.app/](https://reddit-dashboard-one.vercel.app/)
+- **Backend API**: [https://reddit-dashboard-purple-hill-3043.fly.dev/](https://reddit-dashboard-purple-hill-3043.fly.dev/)
 
-## 🌟 Features
+## 🚀 Overview
+A comprehensive full-stack application for analyzing Reddit data using AI-powered insights, interactive visualizations, and real-time analytics. The platform provides deep insights into social media trends, sentiment analysis, and user engagement patterns.
 
-### AI-Powered Analytics
+## ✨ Features
+
+### 🤖 AI-Powered Analytics
 - Real-time sentiment analysis
 - Topic modeling and trend detection
 - Engagement pattern analysis
 - Content quality assessment
-- Automated recommendations
+- AI-driven recommendations
 
-### Interactive Visualizations
+### 📊 Interactive Visualizations
 - Time series analysis
 - Network graphs
 - Heat maps
 - Word clouds
 - Interactive charts
 
-### Modern UI/UX
+### 🎨 Modern UI/UX
 - Responsive Material UI design
 - Dark/Light theme support
 - Real-time updates
 - Interactive filters
 - Cross-platform compatibility
 
-## 🏗️ Project Structure
+## 🛠️ Tech Stack
 
+### Frontend
+- Next.js 14
+- TypeScript
+- Material-UI (MUI)
+- React Query
+- Plotly.js
+- React Force Graph
+
+### Backend
+- Python 3.12
+- Flask
+- DuckDB
+- NLTK
+- scikit-learn
+- Google Gemini AI
+- Flask-CORS
+
+### DevOps & Deployment
+- Vercel (Frontend)
+- Fly.io (Backend)
+- Docker
+- GitHub Actions
+
+## 🏗️ Project Structure
 ```
 /
-├── frontend/                # Next.js frontend application
-│   ├── src/                # Source code
-│   ├── public/             # Static assets
-│   └── README.md          # Frontend documentation
-├── backend/                # FastAPI backend service
-│   ├── app/               # Application code
-│   ├── tests/            # Backend tests
-│   └── README.md         # Backend documentation
-├── tests/                 # Integration tests
-│   ├── e2e/              # End-to-end tests
-│   ├── integration/      # Integration tests
-│   └── README.md         # Testing documentation
-├── docker/                # Docker configuration
-│   ├── frontend/         # Frontend Dockerfile
-│   └── backend/          # Backend Dockerfile
-├── docker-compose.yml    # Docker Compose configuration
-├── .env.example          # Environment variables template
+├── backend/                # Flask backend service
+│   ├── app.py             # Main application file
+│   ├── data/              # Data storage
+│   └── requirements.txt   # Python dependencies
+├── social-media-dashboard/ # Next.js frontend
+│   ├── src/               # Source code
+│   └── public/            # Static assets
+├── tests/                 # Integration & unit tests
 └── README.md             # Main documentation
 ```
 
@@ -53,71 +73,70 @@ A comprehensive full-stack application for analyzing social media data using AI-
 
 ### Prerequisites
 - Node.js 18+
-- Python 3.8+
-- Docker and Docker Compose (optional)
+- Python 3.12+
+- Docker (optional)
 
-### Development Setup
-
-1. Clone the repository:
+### Frontend Setup
 ```bash
-git clone https://github.com/yourusername/social-media-dashboard.git
 cd social-media-dashboard
-```
-
-2. Copy environment variables:
-```bash
-cp .env.example .env
-```
-
-3. Start with Docker (recommended):
-```bash
-docker-compose up
-```
-
-Or start services individually:
-
-Frontend:
-```bash
-cd frontend
 npm install
 npm run dev
 ```
 
-Backend:
+### Backend Setup
 ```bash
 cd backend
 python -m venv venv
 source venv/bin/activate  # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+python app.py
 ```
 
-4. Access the application:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:5000
-- API Documentation: http://localhost:5000/docs
-
-## 🔧 Configuration
-
 ### Environment Variables
-
+Create `.env.local` for frontend:
 ```env
-# Frontend
 NEXT_PUBLIC_API_URL=http://localhost:5000
-NEXT_PUBLIC_ENABLE_ANALYTICS=true
+```
 
-# Backend
-DATABASE_URL=postgresql://user:password@localhost:5432/dbname
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=your-secret-key
+Create `.env` for backend:
+```env
+GEMINI_API_KEY=your_api_key_here
+```
+
+## 📚 Documentation
+
+### API Endpoints
+- `/api/health` - Health check
+- `/api/stats` - Basic statistics
+- `/api/sentiment` - Sentiment analysis
+- `/api/network` - Network analysis
+- `/api/topics` - Topic modeling
+- `/api/timeseries` - Time series data
+- `/api/ai/insights` - AI-powered insights
+
+### Features Documentation
+- [Backend API Documentation](./backend/README.md)
+- [Frontend Documentation](./social-media-dashboard/README.md)
+- [Testing Documentation](./tests/README.md)
+
+## 🚀 Deployment
+
+### Frontend (Vercel)
+```bash
+cd social-media-dashboard
+vercel deploy
+```
+
+### Backend (Fly.io)
+```bash
+cd backend
+fly deploy
 ```
 
 ## 🧪 Testing
-
-Run all tests:
 ```bash
 # Run frontend tests
-cd frontend
+cd social-media-dashboard
 npm test
 
 # Run backend tests
@@ -129,58 +148,28 @@ cd tests
 pytest
 ```
 
-## 📦 Deployment
-
-### Docker Deployment
-```bash
-docker-compose -f docker-compose.prod.yml up -d
-```
-
-### Manual Deployment
-
-Frontend:
-```bash
-cd frontend
-npm run build
-npm start
-```
-
-Backend:
-```bash
-cd backend
-gunicorn app.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker
-```
-
-## 🔒 Security
-
-- JWT authentication
-- Rate limiting
+## 🔒 Security Features
 - CORS configuration
+- Rate limiting
 - Input validation
-- XSS protection
-- CSRF protection
+- Error handling
+- API key protection
 
 ## 🤝 Contributing
-
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+3. Commit your changes (`git commit -m 'Add AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## 📄 License
+## 📝 License
+This project is licensed under the MIT License.
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📞 Support
-
-- Documentation: [/docs](./docs)
-- Issue Tracker: [/issues](./issues)
-- Wiki: [/wiki](./wiki)
+## 👥 Authors
+- [Your Name] - Initial work
 
 ## 🙏 Acknowledgments
-
 - Material-UI for the component library
-- FastAPI for the backend framework
+- Flask for the backend framework
 - Next.js for the frontend framework
-- All contributors who have helped with the project
+- Vercel and Fly.io for hosting
