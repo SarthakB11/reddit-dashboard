@@ -34,6 +34,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import WarningIcon from '@mui/icons-material/Warning';
 import SearchIcon from '@mui/icons-material/Search';
 import dynamic from 'next/dynamic';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Dynamically import Plotly to avoid SSR issues
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false }) as any;
@@ -171,70 +172,63 @@ export default function SentimentAnalysisPage() {
   const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
   const [usingSampleData, setUsingSampleData] = useState(false);
   
-  // Function to check API health
   const checkApiHealth = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(API_ENDPOINTS.HEALTH, { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.HEALTH_CHECK) 
+      });
       return response.ok;
     } catch (err) {
       return false;
     }
   };
   
-  // Function to fetch sentiment data from API
   const fetchSentimentData = async (keyword: string = '', subreddit: string = '') => {
     setLoading(true);
     setError(null);
     setUsingSampleData(false);
     
     try {
-      // First check API health
       const isApiHealthy = await checkApiHealth();
-      
       if (!isApiHealthy) {
         throw new Error('API server is not available');
       }
       
-      // Build API URL with query parameters
-      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/sentiment`);
+      const url = new URL(API_ENDPOINTS.SENTIMENT);
       if (keyword) {
-        apiUrl.searchParams.append('keyword', keyword);
+        url.searchParams.append('keyword', keyword);
       }
       if (subreddit) {
-        apiUrl.searchParams.append('subreddit', subreddit);
+        url.searchParams.append('subreddit', subreddit);
       }
       
-      // Fetch data from API
-      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
+      const response = await fetch(url.toString(), { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.DEFAULT) 
+      });
       
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `API error: ${response.status}`);
       }
       
       const data = await response.json();
-      
-      // Check if we have valid data
-      if (!data.overall || !data.timeData || !data.subreddits) {
-        throw new Error('Invalid data format received from API');
-      }
-      
       setSentimentData(data);
       setApiStatus('connected');
-    } catch (err) {
+      setUsingSampleData(false);
+    } catch (err: any) {
       console.error('Error fetching sentiment data:', err);
-      setError(`Failed to load sentiment data from API: ${err instanceof Error ? err.message : 'Unknown error'}. Using sample data instead.`);
+      setError(handleApiError(err));
       setApiStatus('disconnected');
       
-      // Fallback to sample data
-      const sampleData = generateMockSentimentData();
-      setSentimentData(sampleData);
+      // Fallback to mock data
+      const mockData = generateMockSentimentData();
+      setSentimentData(mockData);
       setUsingSampleData(true);
     } finally {
       setLoading(false);
     }
   };
   
-  // Check API status periodically
   useEffect(() => {
     const checkApiConnection = async () => {
       const isHealthy = await checkApiHealth();
@@ -255,7 +249,6 @@ export default function SentimentAnalysisPage() {
     return () => clearInterval(interval);
   }, [usingSampleData]);
   
-  // Fetch data on initial load
   useEffect(() => {
     fetchSentimentData();
   }, []);
@@ -280,7 +273,6 @@ export default function SentimentAnalysisPage() {
     fetchSentimentData(keyword, subreddit);
   };
   
-  // Custom component to display API connection status
   const ApiStatus = ({ status }: { status: 'connected' | 'disconnected' | 'loading' }) => {
     let icon = null;
     let text = '';

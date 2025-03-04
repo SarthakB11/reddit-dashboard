@@ -28,6 +28,7 @@ import WarningIcon from '@mui/icons-material/Warning';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudOffIcon from '@mui/icons-material/CloudOff';
 import dynamic from 'next/dynamic';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Dynamically import ForceGraph to avoid SSR issues
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
@@ -360,152 +361,66 @@ export default function NetworkAnalysisPage() {
   const [apiStatus, setApiStatus] = useState<'connected' | 'disconnected' | 'loading'>('loading');
   const [usingSampleData, setUsingSampleData] = useState(false);
   
-  // Check API connection on initial load
-  useEffect(() => {
-    const checkApiConnection = async () => {
-      try {
-        const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) })
-          .then(res => res.ok)
-          .catch(() => false);
-          
-        if (!healthCheck) {
-          setApiStatus('disconnected');
-          throw new Error('API server is not available');
-        }
-        
-        // Try to get data from the API
-        const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/network`);
-        apiUrl.searchParams.append('type', networkType);
-        if (keyword) {
-          apiUrl.searchParams.append('keyword', keyword);
-        }
-        // Remove limit from frontend to use backend default
-        
-        const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
-        
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (!data.nodes || data.nodes.length === 0) {
-          setError(`No network data found for ${networkType === 'subreddit' ? 'subreddits' : 'authors'}${keyword ? ` matching "${keyword}"` : ''}.`);
-          // Fall back to sample data with empty results message
-          const mockData = generateMockNetworkData();
-          setNetworkData(mockData);
-          setUsingSampleData(true);
-        } else {
-          // Success - set API connection status and use actual data
-          setApiStatus('connected');
-          
-          // If metrics are missing, calculate them
-          if (!data.metrics) {
-            const nodeCount = data.nodes.length;
-            const linkCount = data.links.length;
-            const totalPossibleConnections = nodeCount * (nodeCount - 1) / 2;
-            const density = totalPossibleConnections > 0 ? linkCount / totalPossibleConnections : 0;
-            const avgConnections = data.nodes.reduce((sum: number, node: any) => sum + (node.connections || 0), 0) / nodeCount;
-            
-            data.metrics = {
-              density: Math.round(density * 100) / 100,
-              modularity: 0.65, // Placeholder
-              communities: Math.max(1, Math.round(linkCount / 10)), // Simple heuristic
-              avgConnections: Math.round(avgConnections * 10) / 10
-            };
-          }
-          
-          setNetworkData(data);
-        }
-      } catch (err: any) {
-        console.error('Error fetching network data:', err);
-        setError(`Failed to load network data from API: ${err.message}. Using sample data instead.`);
-        setApiStatus('disconnected');
-        
-        // Fallback to mock data in case of API error
-        const mockData = generateMockNetworkData();
-        setNetworkData(mockData);
-        setUsingSampleData(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    // Initial check
-    checkApiConnection();
-    
-    // Check every 30 seconds
-    const interval = setInterval(checkApiConnection, 30000);
-    
-    return () => clearInterval(interval);
-  }, [networkType, keyword, usingSampleData]);
-  
-  const fetchNetworkData = async (type: 'subreddit' | 'author', searchKeyword: string = '') => {
-    setLoading(true);
-    setError(null);
-    setUsingSampleData(false);
-    
+  const checkApiConnection = async () => {
     try {
-      // First check if API is available
-      const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) })
-        .then(res => res.ok)
-        .catch(() => false);
-        
+      const healthCheck = await fetch(API_ENDPOINTS.HEALTH, { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.HEALTH_CHECK)
+      }).then(res => res.ok).catch(() => false);
+
       if (!healthCheck) {
         setApiStatus('disconnected');
         throw new Error('API server is not available');
       }
-      
-      // Try to get data from the API
-      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/network`);
-      apiUrl.searchParams.append('type', type);
-      if (searchKeyword) {
-        apiUrl.searchParams.append('keyword', searchKeyword);
+
+      setApiStatus('connected');
+      return true;
+    } catch (err) {
+      setApiStatus('disconnected');
+      return false;
+    }
+  };
+
+  const fetchNetworkData = async (type: 'subreddit' | 'author', searchKeyword: string = '') => {
+    setLoading(true);
+    setError(null);
+    setUsingSampleData(false);
+
+    try {
+      const isHealthy = await checkApiConnection();
+      if (!isHealthy) {
+        throw new Error('API server is not available');
       }
-      // Remove limit from frontend to use backend default
-      
-      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(10000) });
-      
+
+      const url = new URL(API_ENDPOINTS.NETWORK);
+      url.searchParams.append('type', type);
+      if (searchKeyword) {
+        url.searchParams.append('keyword', searchKeyword);
+      }
+
+      const response = await fetch(url.toString(), { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.DEFAULT)
+      });
+
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
-      
+
       const data = await response.json();
       
       if (!data.nodes || data.nodes.length === 0) {
         setError(`No network data found for ${type === 'subreddit' ? 'subreddits' : 'authors'}${searchKeyword ? ` matching "${searchKeyword}"` : ''}.`);
-        // Fall back to sample data with empty results message
         const mockData = generateMockNetworkData();
         setNetworkData(mockData);
         setUsingSampleData(true);
       } else {
-        // Success - set API connection status and use actual data
         setApiStatus('connected');
-        
-        // If metrics are missing, calculate them
-        if (!data.metrics) {
-          const nodeCount = data.nodes.length;
-          const linkCount = data.links.length;
-          const totalPossibleConnections = nodeCount * (nodeCount - 1) / 2;
-          const density = totalPossibleConnections > 0 ? linkCount / totalPossibleConnections : 0;
-          const avgConnections = data.nodes.reduce((sum: number, node: any) => sum + (node.connections || 0), 0) / nodeCount;
-          
-          data.metrics = {
-            density: Math.round(density * 100) / 100,
-            modularity: 0.65, // Placeholder
-            communities: Math.max(1, Math.round(linkCount / 10)), // Simple heuristic
-            avgConnections: Math.round(avgConnections * 10) / 10
-          };
-        }
-        
         setNetworkData(data);
       }
     } catch (err: any) {
       console.error('Error fetching network data:', err);
-      setError(`Failed to load network data from API: ${err.message}. Using sample data instead.`);
+      setError(handleApiError(err));
       setApiStatus('disconnected');
       
-      // Fallback to mock data in case of API error
       const mockData = generateMockNetworkData();
       setNetworkData(mockData);
       setUsingSampleData(true);

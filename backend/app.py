@@ -27,7 +27,7 @@ from chat.routes import init_chat_module
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["https://reddit-dashboard-one.vercel.app"])
+CORS(app, origins=["https://reddit-dashboard-one.vercel.app", "http://localhost:3000"])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1221,9 +1221,6 @@ def get_ai_summary():
         
         if avg_comments > 10:
             summary += f"- Posts on this topic generate significant discussion with an average of {avg_comments:.1f} comments per post.\n"
-        
-        if avg_score > 50:
-            summary += f"- Content on this topic is well-received by the community with an average score of {avg_score:.1f} per post.\n"
         
         # Most active days
         active_days_query = f"""

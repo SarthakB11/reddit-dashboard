@@ -37,6 +37,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import WarningIcon from '@mui/icons-material/Warning';
 import SearchIcon from '@mui/icons-material/Search';
 import dynamic from 'next/dynamic';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Import Plotly types
 import { PlotParams } from 'react-plotly.js';
@@ -400,67 +401,58 @@ function TopicModelingContent() {
     setIsClient(true);
   }, []);
   
-  // Function to check API health
   const checkApiHealth = async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(API_ENDPOINTS.HEALTH, { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.HEALTH_CHECK) 
+      });
       return response.ok;
     } catch (err) {
       return false;
     }
   };
   
-  // Function to fetch topic data from API
   const fetchTopicData = async (keyword: string = '', subreddit: string = '', numTopics: number = 8) => {
     setLoading(true);
     setError(null);
     setUsingSampleData(false);
-    
+
     try {
-      // First check API health
       const isApiHealthy = await checkApiHealth();
-      
       if (!isApiHealthy) {
         throw new Error('API server is not available');
       }
-      
-      // Build API URL with query parameters
-      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/topics`);
+
+      const url = new URL(API_ENDPOINTS.TOPICS);
       if (keyword) {
-        apiUrl.searchParams.append('keyword', keyword);
+        url.searchParams.append('keyword', keyword);
       }
       if (subreddit) {
-        apiUrl.searchParams.append('subreddit', subreddit);
+        url.searchParams.append('subreddit', subreddit);
       }
-      apiUrl.searchParams.append('num_topics', numTopics.toString());
-      
-      // Fetch data from API
-      const response = await fetch(apiUrl.toString(), { signal: AbortSignal.timeout(30000) });
-      
+      url.searchParams.append('num_topics', numTopics.toString());
+
+      const response = await fetch(url.toString(), { 
+        signal: AbortSignal.timeout(API_TIMEOUTS.DEFAULT) 
+      });
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || `API error: ${response.status}`);
       }
-      
+
       const data = await response.json();
-      
-      // Check if we have valid data
-      if (!data.topics || !data.subreddits || !data.timeData) {
-        throw new Error('Invalid data format received from API');
-      }
-      
       setTopicData(data);
       setApiStatus('connected');
-      setSelectedTopic(null);
-      setSelectedSubreddit(null);
-    } catch (err) {
+      setUsingSampleData(false);
+    } catch (err: any) {
       console.error('Error fetching topic data:', err);
-      setError(`Failed to load topic data from API: ${err instanceof Error ? err.message : 'Unknown error'}. Using sample data instead.`);
+      setError(handleApiError(err));
       setApiStatus('disconnected');
       
-      // Fallback to sample data
-      const sampleData = generateMockTopicModelingData();
-      setTopicData(sampleData);
+      // Fallback to mock data
+      const mockData = generateMockTopicModelingData();
+      setTopicData(mockData);
       setUsingSampleData(true);
     } finally {
       setLoading(false);
