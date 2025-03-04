@@ -21,6 +21,7 @@ import ForumIcon from '@mui/icons-material/Forum';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import LinkIcon from '@mui/icons-material/Link';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 interface SearchResult {
   id: string;
@@ -58,9 +59,12 @@ export default function SearchPage() {
     setError(null);
 
     try {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/posts/search?keyword=${encodeURIComponent(searchQuery)}&offset=${(page - 1) * postsPerPage}&limit=${postsPerPage}`
-      );
+      const url = new URL(API_ENDPOINTS.SEARCH);
+      url.searchParams.append('keyword', searchQuery);
+      url.searchParams.append('offset', ((page - 1) * postsPerPage).toString());
+      url.searchParams.append('limit', postsPerPage.toString());
+
+      const response = await fetch(url.toString());
 
       if (!response.ok) {
         throw new Error('Failed to fetch search results');

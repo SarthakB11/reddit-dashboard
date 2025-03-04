@@ -17,6 +17,7 @@ import SmartToyIcon from '@mui/icons-material/SmartToy';
 import PersonIcon from '@mui/icons-material/Person';
 import MessageList from './MessageList';
 import SuggestedQuestions from './SuggestedQuestions';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../../config/api';
 
 // Message type definition
 interface Message {
@@ -73,7 +74,7 @@ export default function ChatInterface() {
     
     try {
       // Call the API
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/chat/message`, {
+      const response = await fetch(API_ENDPOINTS.CHAT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

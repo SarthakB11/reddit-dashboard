@@ -31,6 +31,7 @@ CORS(app, origins=[
     "https://reddit-dashboard-one.vercel.app",
     "https://reddit-dashboard-git-main-sarthakb11.vercel.app",
     "https://reddit-dashboard.vercel.app",
+    "https://reddit-dashboard-sarthakb11.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://0.0.0.0:3000"
@@ -84,20 +85,24 @@ def load_and_process_data():
     """Load and process the Reddit data from JSONL file"""
     try:
         logger.info("Starting data loading process...")
-        # Use absolute path that will work in container
-        data_path = os.path.join('/app', 'data', 'data.jsonl')
-        logger.info(f"Data path: {data_path}")
         
-        # Check if file exists
-        if not os.path.exists(data_path):
-            logger.error(f"Data file not found at {data_path}")
-            # Try alternate path for local development
-            alt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)),'backend', 'data', 'data.jsonl')
-            if os.path.exists(alt_path):
-                logger.info(f"Found data file at alternate path: {alt_path}")
-                data_path = alt_path
-            else:
-                raise FileNotFoundError(f"Data file not found at {data_path} or {alt_path}")
+        # Try different possible data paths
+        possible_paths = [
+            os.path.join('/app', 'data', 'data.jsonl'),  # Docker path
+            os.path.join(os.path.dirname(os.path.dirname(__file__)), 'backend', 'data', 'data.jsonl'),  # Local dev path
+            os.path.join(os.path.dirname(__file__), 'data', 'data.jsonl'),  # Current directory path
+            os.path.join('data', 'data.jsonl')  # Relative path
+        ]
+        
+        data_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                data_path = path
+                logger.info(f"Found data file at: {data_path}")
+                break
+        
+        if not data_path:
+            raise FileNotFoundError(f"Data file not found in any of the following locations: {', '.join(possible_paths)}")
         
         # Read data into DuckDB
         con.execute(f"""

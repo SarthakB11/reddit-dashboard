@@ -27,6 +27,7 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import dynamic from 'next/dynamic';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Define interfaces for the AI insights data
 interface Topic {
@@ -173,7 +174,7 @@ export default function AIInsightsPage() {
   const checkApiHealth = async () => {
     try {
       setApiStatus('loading');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`);
+      const response = await fetch(API_ENDPOINTS.HEALTH);
       if (response.ok) {
         setApiStatus('connected');
       } else {
@@ -212,8 +213,19 @@ export default function AIInsightsPage() {
       if (subreddit) params.append('subreddit', subreddit);
       if (domain) params.append('domain', domain);
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/ai/insights?${params.toString()}`);
-      
+      const controller = new AbortController();
+      const signal = controller.signal;
+
+      const timeout = setTimeout(() => {
+        controller.abort(); // Abort the fetch request after the timeout
+      }, API_TIMEOUTS.LONG); // Set your desired timeout duration here
+
+      const response = await fetch(`${API_ENDPOINTS.AI_INSIGHTS}?${params.toString()}`, {
+        signal, // Pass the signal to the fetch options
+      });
+
+      clearTimeout(timeout); // Clear the timeout if the fetch is successful
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to fetch insights');

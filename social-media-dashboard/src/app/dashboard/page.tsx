@@ -45,6 +45,7 @@ import {
   Language as LanguageIcon,
   Link as LinkIcon,
 } from '@mui/icons-material';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Define type for search parameters
 interface SearchParams {
@@ -124,7 +125,7 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/stats`);
+        const response = await fetch(API_ENDPOINTS.STATS);
         if (!response.ok) {
           throw new Error('Failed to fetch dashboard data');
         }

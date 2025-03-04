@@ -24,6 +24,7 @@ import {
 } from '@mui/icons-material';
 import dynamic from 'next/dynamic';
 import { PlotParams } from 'react-plotly.js';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Dynamically import Plotly to avoid SSR issues
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false }) as React.ComponentType<PlotParams>;
@@ -54,7 +55,9 @@ export default function TimeSeriesPage() {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/timeseries?interval=${timeUnit}`);
+        const url = new URL(API_ENDPOINTS.TIMESERIES);
+        url.searchParams.append('interval', timeUnit);
+        const response = await fetch(url.toString());
         if (!response.ok) {
           throw new Error('Failed to fetch time series data');
         }
