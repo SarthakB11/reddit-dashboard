@@ -27,7 +27,7 @@ from chat.routes import init_chat_module
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://reddit-dashboard-one.vercel.app"])
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
