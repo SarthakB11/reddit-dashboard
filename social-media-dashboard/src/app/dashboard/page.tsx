@@ -45,7 +45,7 @@ import {
   Language as LanguageIcon,
   Link as LinkIcon,
 } from '@mui/icons-material';
-import { API_ENDPOINTS, API_TIMEOUTS, handleApiError, DEFAULT_FETCH_OPTIONS, checkApiHealth } from '../config/api';
+import { API_ENDPOINTS, API_TIMEOUTS, handleApiError } from '../config/api';
 
 // Define type for search parameters
 interface SearchParams {
@@ -125,27 +125,13 @@ export default function DashboardPage() {
       try {
         setLoading(true);
         setError(null);
-
-        // Check API health first
-        const isHealthy = await checkApiHealth();
-        if (!isHealthy) {
-          throw new Error('API server is not available');
-        }
-
-        const response = await fetch(API_ENDPOINTS.STATS, {
-          ...DEFAULT_FETCH_OPTIONS,
-          signal: AbortSignal.timeout(API_TIMEOUTS.DEFAULT)
-        });
-
+        const response = await fetch(API_ENDPOINTS.STATS);
         if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.error || `API error: ${response.status}`);
+          throw new Error('Failed to fetch dashboard data');
         }
-
         const data = await response.json();
         setStats(data);
       } catch (err) {
-        console.error('Error fetching dashboard data:', err);
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
         setLoading(false);
