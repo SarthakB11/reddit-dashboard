@@ -77,7 +77,20 @@ def load_and_process_data():
     """Load and process the Reddit data from JSONL file"""
     try:
         logger.info("Starting data loading process...")
-        data_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'data.jsonl')
+        # Use absolute path that will work in container
+        data_path = os.path.join('/app', 'data', 'data.jsonl')
+        logger.info(f"Data path: {data_path}")
+        
+        # Check if file exists
+        if not os.path.exists(data_path):
+            logger.error(f"Data file not found at {data_path}")
+            # Try alternate path for local development
+            alt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'data.jsonl')
+            if os.path.exists(alt_path):
+                logger.info(f"Found data file at alternate path: {alt_path}")
+                data_path = alt_path
+            else:
+                raise FileNotFoundError(f"Data file not found at {data_path} or {alt_path}")
         
         # Read data into DuckDB
         con.execute(f"""

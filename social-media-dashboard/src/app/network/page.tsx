@@ -397,7 +397,7 @@ export default function NetworkAnalysisPage() {
     
     try {
       // First check if API is available
-      const healthCheck = await fetch('http://localhost:5000/api/health', { signal: AbortSignal.timeout(3000) })
+      const healthCheck = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/health`, { signal: AbortSignal.timeout(3000) })
         .then(res => res.ok)
         .catch(() => false);
         
@@ -407,7 +407,7 @@ export default function NetworkAnalysisPage() {
       }
       
       // Try to get data from the API
-      const apiUrl = new URL('http://localhost:5000/api/network');
+      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/network`);
       apiUrl.searchParams.append('type', type);
       if (searchKeyword) {
         apiUrl.searchParams.append('keyword', searchKeyword);

@@ -203,7 +203,7 @@ export default function SentimentAnalysisPage() {
       }
       
       // Build API URL with query parameters
-      const apiUrl = new URL('http://localhost:5000/api/sentiment');
+      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/sentiment`);
       if (keyword) {
         apiUrl.searchParams.append('keyword', keyword);
       }

@@ -432,7 +432,7 @@ function TopicModelingContent() {
       }
       
       // Build API URL with query parameters
-      const apiUrl = new URL('http://localhost:5000/api/topics');
+      const apiUrl = new URL(`${process.env.NEXT_PUBLIC_API_URL}/api/topics`);
       if (keyword) {
         apiUrl.searchParams.append('keyword', keyword);
       }
